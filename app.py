@@ -41,7 +41,6 @@ THEMES = {
         "danger": "#FF5F76",
         "input": "#091625",
     },
-
     "light": {
         "bg": "#F3F6FA",
         "surface": "#FFFFFF",
@@ -56,7 +55,7 @@ THEMES = {
         "warning": "#D78B19",
         "danger": "#E45068",
         "input": "#F8FAFC",
-    }
+    },
 }
 
 
@@ -75,6 +74,7 @@ class Database:
 
         cursor = self.connection.cursor()
 
+        # Base tables. IF NOT EXISTS means existing data is safe.
         cursor.executescript("""
         CREATE TABLE IF NOT EXISTS cars (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -134,13 +134,144 @@ class Database:
             done INTEGER DEFAULT 0,
             notes TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS database_info (
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            version INTEGER NOT NULL
+        );
         """)
 
         self.connection.commit()
 
-    def execute(self, query, params=(), fetch=False):
+        # ----------------------------------------------------
+        # MIGRATION
+        # ----------------------------------------------------
+        self.migrate()
 
-        cursor = self.connection.execute(query, params)
+    def get_columns(self, table):
+
+        rows = self.connection.execute(
+            f"PRAGMA table_info({table})"
+        ).fetchall()
+
+        return {
+            row["name"]
+            for row in rows
+        }
+
+    def add_column_if_missing(
+        self,
+        table,
+        column,
+        definition
+    ):
+
+        columns = self.get_columns(table)
+
+        if column not in columns:
+
+            try:
+                self.connection.execute(
+                    f"""
+                    ALTER TABLE {table}
+                    ADD COLUMN {column} {definition}
+                    """
+                )
+            except sqlite3.OperationalError:
+                pass
+
+    def migrate(self):
+
+        # Cars
+        self.add_column_if_missing(
+            "cars",
+            "notes",
+            "TEXT"
+        )
+
+        self.add_column_if_missing(
+            "cars",
+            "created_at",
+            "TEXT"
+        )
+
+        # Service
+        self.add_column_if_missing(
+            "service",
+            "notes",
+            "TEXT"
+        )
+
+        # Fuel
+        self.add_column_if_missing(
+            "fuel",
+            "station",
+            "TEXT"
+        )
+
+        # Expenses
+        self.add_column_if_missing(
+            "expenses",
+            "notes",
+            "TEXT"
+        )
+
+        # Reminders
+        self.add_column_if_missing(
+            "reminders",
+            "done",
+            "INTEGER DEFAULT 0"
+        )
+
+        self.add_column_if_missing(
+            "reminders",
+            "notes",
+            "TEXT"
+        )
+
+        self.add_column_if_missing(
+            "reminders",
+            "due_mileage",
+            "INTEGER DEFAULT 0"
+        )
+
+        # Database version
+        row = self.connection.execute(
+            "SELECT version FROM database_info WHERE id=1"
+        ).fetchone()
+
+        if row is None:
+
+            self.connection.execute(
+                """
+                INSERT INTO database_info(id, version)
+                VALUES(1, 3)
+                """
+            )
+
+        else:
+
+            self.connection.execute(
+                """
+                UPDATE database_info
+                SET version=3
+                WHERE id=1
+                """
+            )
+
+        self.connection.commit()
+
+    def execute(
+        self,
+        query,
+        params=(),
+        fetch=False
+    ):
+
+        cursor = self.connection.execute(
+            query,
+            params
+        )
 
         self.connection.commit()
 
@@ -149,24 +280,38 @@ class Database:
 
         return cursor
 
-    def one(self, query, params=()):
+    def one(
+        self,
+        query,
+        params=()
+    ):
 
-        cursor = self.connection.execute(query, params)
+        return self.connection.execute(
+            query,
+            params
+        ).fetchone()
 
-        return cursor.fetchone()
+    def scalar(
+        self,
+        query,
+        params=()
+    ):
 
-    def scalar(self, query, params=()):
-
-        row = self.one(query, params)
+        row = self.one(
+            query,
+            params
+        )
 
         if not row:
             return 0
 
-        return list(row)[0] or 0
+        value = list(row)[0]
+
+        return value if value is not None else 0
 
 
 # ============================================================
-# APPLICATION
+# MAIN APPLICATION
 # ============================================================
 
 class CarManager(tk.Tk):
@@ -180,14 +325,22 @@ class CarManager(tk.Tk):
 
         self.database = Database()
 
-        self.title(f"{APP_NAME} {VERSION}")
+        self.title(
+            f"{APP_NAME} {VERSION}"
+        )
 
-        self.geometry("1380x850")
-        self.minsize(1100, 700)
+        self.geometry(
+            "1380x850"
+        )
 
-        self.configure(bg=self.c("bg"))
+        self.minsize(
+            1100,
+            700
+        )
 
-        self.current_page = None
+        self.configure(
+            bg=self.c("bg")
+        )
 
         self.style = ttk.Style(self)
 
@@ -205,14 +358,20 @@ class CarManager(tk.Tk):
     # HELPERS
     # ========================================================
 
-    def c(self, name):
-        return self.colors[name]
+    def c(self, key):
+        return self.colors[key]
 
     def money(self, value):
 
         try:
-            return f"₽ {float(value):,.0f}".replace(",", " ")
+
+            return (
+                f"₽ {float(value):,.0f}"
+                .replace(",", " ")
+            )
+
         except Exception:
+
             return "₽ 0"
 
     def clear_content(self):
@@ -228,10 +387,13 @@ class CarManager(tk.Tk):
 
         menu = tk.Menu(self)
 
-        file_menu = tk.Menu(menu, tearoff=0)
+        file_menu = tk.Menu(
+            menu,
+            tearoff=0
+        )
 
         file_menu.add_command(
-            label="Export CSV",
+            label="Export all data to CSV",
             command=self.export_all
         )
 
@@ -247,7 +409,10 @@ class CarManager(tk.Tk):
             menu=file_menu
         )
 
-        theme_menu = tk.Menu(menu, tearoff=0)
+        theme_menu = tk.Menu(
+            menu,
+            tearoff=0
+        )
 
         theme_menu.add_command(
             label="Dark",
@@ -264,7 +429,10 @@ class CarManager(tk.Tk):
             menu=theme_menu
         )
 
-        help_menu = tk.Menu(menu, tearoff=0)
+        help_menu = tk.Menu(
+            menu,
+            tearoff=0
+        )
 
         help_menu.add_command(
             label="About",
@@ -276,10 +444,12 @@ class CarManager(tk.Tk):
             menu=help_menu
         )
 
-        self.config(menu=menu)
+        self.config(
+            menu=menu
+        )
 
     # ========================================================
-    # MAIN UI
+    # INTERFACE
     # ========================================================
 
     def build_interface(self):
@@ -391,7 +561,7 @@ class CarManager(tk.Tk):
             pady=(25, 30)
         )
 
-        logo = tk.Label(
+        tk.Label(
             brand,
             text="CM",
             font=("Segoe UI", 18, "bold"),
@@ -399,9 +569,7 @@ class CarManager(tk.Tk):
             bg=self.c("accent"),
             padx=12,
             pady=8
-        )
-
-        logo.pack(side="left")
+        ).pack(side="left")
 
         info = tk.Frame(
             brand,
@@ -429,8 +597,6 @@ class CarManager(tk.Tk):
             bg=self.c("surface")
         ).pack(anchor="w")
 
-        self.nav_buttons = []
-
         navigation = [
             ("⌂   Dashboard", self.show_dashboard),
             ("🚗   Garage", self.show_garage),
@@ -440,11 +606,11 @@ class CarManager(tk.Tk):
             ("◷   Reminders", self.show_reminders),
         ]
 
-        for title, command in navigation:
+        for text, command in navigation:
 
-            button = tk.Button(
+            tk.Button(
                 self.sidebar,
-                text=title,
+                text=text,
                 command=command,
                 relief="flat",
                 bd=0,
@@ -457,50 +623,52 @@ class CarManager(tk.Tk):
                 font=("Segoe UI", 10, "bold"),
                 padx=22,
                 pady=12
-            )
-
-            button.pack(
+            ).pack(
                 fill="x",
                 pady=2
             )
 
-            self.nav_buttons.append(button)
-
-        spacer = tk.Frame(
+        tk.Frame(
             self.sidebar,
             bg=self.c("surface")
-        )
-
-        spacer.pack(
+        ).pack(
             fill="both",
             expand=True
         )
 
-        bottom = [
-            ("☼   Switch theme", self.toggle_theme),
-            ("ⓘ   About", self.show_about)
-        ]
+        tk.Button(
+            self.sidebar,
+            text="☼   Switch theme",
+            command=self.toggle_theme,
+            relief="flat",
+            bd=0,
+            anchor="w",
+            cursor="hand2",
+            bg=self.c("surface"),
+            fg=self.c("muted"),
+            activebackground=self.c("surface2"),
+            activeforeground=self.c("text"),
+            font=("Segoe UI", 10),
+            padx=22,
+            pady=11
+        ).pack(fill="x")
 
-        for title, command in bottom:
-
-            button = tk.Button(
-                self.sidebar,
-                text=title,
-                command=command,
-                relief="flat",
-                bd=0,
-                anchor="w",
-                cursor="hand2",
-                bg=self.c("surface"),
-                fg=self.c("muted"),
-                activebackground=self.c("surface2"),
-                activeforeground=self.c("text"),
-                font=("Segoe UI", 10),
-                padx=22,
-                pady=11
-            )
-
-            button.pack(fill="x")
+        tk.Button(
+            self.sidebar,
+            text="ⓘ   About",
+            command=self.show_about,
+            relief="flat",
+            bd=0,
+            anchor="w",
+            cursor="hand2",
+            bg=self.c("surface"),
+            fg=self.c("muted"),
+            activebackground=self.c("surface2"),
+            activeforeground=self.c("text"),
+            font=("Segoe UI", 10),
+            padx=22,
+            pady=11
+        ).pack(fill="x", pady=(0, 15))
 
     # ========================================================
     # BUTTON
@@ -522,8 +690,16 @@ class CarManager(tk.Tk):
             bd=0,
             cursor="hand2",
             font=("Segoe UI", 10, "bold"),
-            bg=self.c("accent") if primary else self.c("surface2"),
-            fg="#FFFFFF" if primary else self.c("text"),
+            bg=(
+                self.c("accent")
+                if primary
+                else self.c("surface2")
+            ),
+            fg=(
+                "#FFFFFF"
+                if primary
+                else self.c("text")
+            ),
             activebackground=self.c("accent2"),
             activeforeground="#FFFFFF",
             padx=18,
@@ -589,7 +765,10 @@ class CarManager(tk.Tk):
 
         tk.Label(
             hero,
-            text="Manage vehicles, maintenance, fuel, expenses and reminders from one modern workspace.",
+            text=(
+                "Manage vehicles, maintenance, fuel, expenses "
+                "and reminders from one modern workspace."
+            ),
             font=("Segoe UI", 10),
             fg=self.c("muted"),
             bg=self.c("surface")
@@ -670,7 +849,7 @@ class CarManager(tk.Tk):
             )
         ]
 
-        for i in range(len(values)):
+        for i, item in enumerate(values):
 
             cards.grid_columnconfigure(
                 i,
@@ -679,7 +858,7 @@ class CarManager(tk.Tk):
 
             self.create_stat_card(
                 cards,
-                *values[i]
+                *item
             ).grid(
                 row=0,
                 column=i,
@@ -687,7 +866,7 @@ class CarManager(tk.Tk):
                 padx=5
             )
 
-        # LOWER AREA
+        # LOWER
 
         lower = tk.Frame(
             self.content,
@@ -799,8 +978,9 @@ class CarManager(tk.Tk):
             """
             SELECT reminders.*, cars.name AS car_name
             FROM reminders
-            LEFT JOIN cars ON cars.id = reminders.car_id
-            WHERE reminders.done = 0
+            LEFT JOIN cars
+            ON cars.id = reminders.car_id
+            WHERE reminders.done=0
             ORDER BY reminders.due_date ASC
             LIMIT 5
             """,
@@ -881,7 +1061,10 @@ class CarManager(tk.Tk):
             font=("Segoe UI", 20, "bold"),
             fg=self.c("text"),
             bg=self.c("surface")
-        ).pack(anchor="w", pady=4)
+        ).pack(
+            anchor="w",
+            pady=4
+        )
 
         tk.Label(
             frame,
@@ -967,13 +1150,13 @@ class CarManager(tk.Tk):
                 for car in cars
                 if query in " ".join(
                     str(car[key] or "")
-                    for key in [
+                    for key in (
                         "name",
                         "make",
                         "model",
                         "vin",
                         "plate"
-                    ]
+                    )
                 ).lower()
             ]
 
@@ -1000,6 +1183,7 @@ class CarManager(tk.Tk):
         )
 
         for column in range(2):
+
             grid.grid_columnconfigure(
                 column,
                 weight=1
@@ -1042,7 +1226,9 @@ class CarManager(tk.Tk):
             bg=self.c("surface")
         )
 
-        header.pack(fill="x")
+        header.pack(
+            fill="x"
+        )
 
         tk.Label(
             header,
@@ -1065,7 +1251,7 @@ class CarManager(tk.Tk):
         tk.Button(
             header,
             text="•••",
-            command=lambda: self.vehicle_menu(car),
+            command=lambda c=car: self.vehicle_menu(c),
             relief="flat",
             bd=0,
             bg=self.c("surface"),
@@ -1102,26 +1288,30 @@ class CarManager(tk.Tk):
             bg=self.c("surface")
         ).pack(anchor="w")
 
-        stats = self.database.execute(
+        service = self.database.scalar(
             """
-            SELECT
-                COALESCE((SELECT SUM(cost)
-                          FROM service
-                          WHERE car_id = ?), 0) AS service,
-                COALESCE((SELECT SUM(liters * price)
-                          FROM fuel
-                          WHERE car_id = ?), 0) AS fuel
+            SELECT COALESCE(SUM(cost),0)
+            FROM service
+            WHERE car_id=?
             """,
-            (car["id"], car["id"]),
-            fetch=True
-        )[0]
+            (car["id"],)
+        )
+
+        fuel = self.database.scalar(
+            """
+            SELECT COALESCE(SUM(liters * price),0)
+            FROM fuel
+            WHERE car_id=?
+            """,
+            (car["id"],)
+        )
 
         tk.Label(
             frame,
             text=(
-                f'Maintenance {self.money(stats["service"])}'
-                f'   •   '
-                f'Fuel {self.money(stats["fuel"])}'
+                f"Maintenance {self.money(service)}"
+                f"   •   "
+                f"Fuel {self.money(fuel)}"
             ),
             font=("Segoe UI", 9),
             fg=self.c("muted"),
@@ -1137,7 +1327,10 @@ class CarManager(tk.Tk):
     # VEHICLE MENU
     # ========================================================
 
-    def vehicle_menu(self, car):
+    def vehicle_menu(
+        self,
+        car
+    ):
 
         menu = tk.Menu(
             self,
@@ -1148,12 +1341,12 @@ class CarManager(tk.Tk):
 
         menu.add_command(
             label="Edit vehicle",
-            command=lambda: self.add_car(car)
+            command=lambda c=car: self.add_car(c)
         )
 
         menu.add_command(
             label="Delete vehicle",
-            command=lambda: self.delete_car(car)
+            command=lambda c=car: self.delete_car(c)
         )
 
         menu.tk_popup(
@@ -1162,7 +1355,7 @@ class CarManager(tk.Tk):
         )
 
     # ========================================================
-    # ADD / EDIT CAR
+    # CAR FORM
     # ========================================================
 
     def add_car(
@@ -1173,10 +1366,15 @@ class CarManager(tk.Tk):
         window = tk.Toplevel(self)
 
         window.title(
-            "Edit vehicle" if car else "Add vehicle"
+            "Edit vehicle"
+            if car
+            else
+            "Add vehicle"
         )
 
-        window.geometry("520x700")
+        window.geometry(
+            "520x700"
+        )
 
         window.configure(
             bg=self.c("bg")
@@ -1232,7 +1430,7 @@ class CarManager(tk.Tk):
             ("Engine", "engine"),
             ("Transmission", "transmission"),
             ("Drive", "drive"),
-            ("Fuel", "fuel")
+            ("Fuel", "fuel"),
         ]
 
         entries = {}
@@ -1265,16 +1463,12 @@ class CarManager(tk.Tk):
 
             entries[key] = entry
 
-            if car:
+            if car and car[key] is not None:
 
-                value = car[key]
-
-                if value is not None:
-
-                    entry.insert(
-                        0,
-                        str(value)
-                    )
+                entry.insert(
+                    0,
+                    str(car[key])
+                )
 
         def save():
 
@@ -1292,6 +1486,41 @@ class CarManager(tk.Tk):
                 )
 
                 return
+
+            try:
+
+                year = int(
+                    values["year"] or 0
+                )
+
+                mileage = int(
+                    values["mileage"] or 0
+                )
+
+            except ValueError:
+
+                messagebox.showwarning(
+                    "Car Manager",
+                    "Year and mileage must be numbers.",
+                    parent=window
+                )
+
+                return
+
+            params = (
+                values["name"],
+                values["make"],
+                values["model"],
+                year,
+                mileage,
+                values["vin"],
+                values["plate"],
+                values["color"],
+                values["engine"],
+                values["transmission"],
+                values["drive"],
+                values["fuel"]
+            )
 
             if car:
 
@@ -1313,21 +1542,7 @@ class CarManager(tk.Tk):
                         fuel=?
                     WHERE id=?
                     """,
-                    (
-                        values["name"],
-                        values["make"],
-                        values["model"],
-                        int(values["year"] or 0),
-                        int(values["mileage"] or 0),
-                        values["vin"],
-                        values["plate"],
-                        values["color"],
-                        values["engine"],
-                        values["transmission"],
-                        values["drive"],
-                        values["fuel"],
-                        car["id"]
-                    )
+                    params + (car["id"],)
                 )
 
             else:
@@ -1351,20 +1566,7 @@ class CarManager(tk.Tk):
                     )
                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                     """,
-                    (
-                        values["name"],
-                        values["make"],
-                        values["model"],
-                        int(values["year"] or 0),
-                        int(values["mileage"] or 0),
-                        values["vin"],
-                        values["plate"],
-                        values["color"],
-                        values["engine"],
-                        values["transmission"],
-                        values["drive"],
-                        values["fuel"]
-                    )
+                    params
                 )
 
             window.destroy()
@@ -1390,20 +1592,18 @@ class CarManager(tk.Tk):
         car
     ):
 
-        answer = messagebox.askyesno(
+        if not messagebox.askyesno(
             "Delete vehicle",
             f'Delete "{car["name"]}" and all related records?'
-        )
-
-        if not answer:
+        ):
             return
 
-        for table in [
+        for table in (
             "service",
             "fuel",
             "expenses",
             "reminders"
-        ]:
+        ):
 
             self.database.execute(
                 f"DELETE FROM {table} WHERE car_id=?",
@@ -1448,24 +1648,23 @@ class CarManager(tk.Tk):
             """
             SELECT service.*, cars.name AS car_name
             FROM service
-            LEFT JOIN cars ON cars.id = service.car_id
+            LEFT JOIN cars
+            ON cars.id=service.car_id
             ORDER BY service.date DESC
             """,
             fetch=True
         )
 
-        headers = [
-            "Date",
-            "Vehicle",
-            "Work",
-            "Category",
-            "Mileage",
-            "Cost"
-        ]
-
         self.create_table(
             self.content,
-            headers,
+            [
+                "Date",
+                "Vehicle",
+                "Work",
+                "Category",
+                "Mileage",
+                "Cost"
+            ],
             rows,
             "service"
         )
@@ -1501,7 +1700,8 @@ class CarManager(tk.Tk):
             """
             SELECT fuel.*, cars.name AS car_name
             FROM fuel
-            LEFT JOIN cars ON cars.id = fuel.car_id
+            LEFT JOIN cars
+            ON cars.id=fuel.car_id
             ORDER BY fuel.date DESC
             """,
             fetch=True
@@ -1552,7 +1752,8 @@ class CarManager(tk.Tk):
             """
             SELECT expenses.*, cars.name AS car_name
             FROM expenses
-            LEFT JOIN cars ON cars.id = expenses.car_id
+            LEFT JOIN cars
+            ON cars.id=expenses.car_id
             ORDER BY expenses.date DESC
             """,
             fetch=True
@@ -1602,8 +1803,10 @@ class CarManager(tk.Tk):
             """
             SELECT reminders.*, cars.name AS car_name
             FROM reminders
-            LEFT JOIN cars ON cars.id = reminders.car_id
-            ORDER BY reminders.done ASC, reminders.due_date ASC
+            LEFT JOIN cars
+            ON cars.id=reminders.car_id
+            ORDER BY reminders.done ASC,
+                     reminders.due_date ASC
             """,
             fetch=True
         )
@@ -1670,8 +1873,6 @@ class CarManager(tk.Tk):
 
         for row_index, row in enumerate(rows, 1):
 
-            values = []
-
             if table == "service":
 
                 values = [
@@ -1704,16 +1905,21 @@ class CarManager(tk.Tk):
                     self.money(row["amount"])
                 ]
 
-            elif table == "reminders":
+            else:
 
                 values = [
-                    "✓ Done" if row["done"] else "○ Open",
+                    "✓ Done"
+                    if row["done"]
+                    else "○ Open",
+
                     row["car_name"],
                     row["title"],
                     row["due_date"],
-                    f'{row["due_mileage"]:,} km'
-                    if row["due_mileage"]
-                    else "—"
+                    (
+                        f'{row["due_mileage"]:,} km'
+                        if row["due_mileage"]
+                        else "—"
+                    )
                 ]
 
             for column, value in enumerate(values):
@@ -1735,15 +1941,18 @@ class CarManager(tk.Tk):
 
             if table == "reminders":
 
-                action = lambda r=row: self.toggle_reminder(r)
+                command = (
+                    lambda r=row:
+                    self.toggle_reminder(r)
+                )
 
                 symbol = "✓"
 
             else:
 
-                action = lambda r=row, t=table: self.delete_record(
-                    t,
-                    r["id"]
+                command = (
+                    lambda r=row, t=table:
+                    self.delete_record(t, r["id"])
                 )
 
                 symbol = "×"
@@ -1751,7 +1960,7 @@ class CarManager(tk.Tk):
             tk.Button(
                 wrapper,
                 text=symbol,
-                command=action,
+                command=command,
                 relief="flat",
                 bd=0,
                 bg=self.c("surface2"),
@@ -1785,9 +1994,17 @@ class CarManager(tk.Tk):
 
         window = tk.Toplevel(self)
 
-        window.title("Select vehicle")
-        window.geometry("400x230")
-        window.configure(bg=self.c("bg"))
+        window.title(
+            "Select vehicle"
+        )
+
+        window.geometry(
+            "400x230"
+        )
+
+        window.configure(
+            bg=self.c("bg")
+        )
 
         window.transient(self)
         window.grab_set()
@@ -1865,7 +2082,10 @@ class CarManager(tk.Tk):
 
         window.title(title)
         window.geometry("500x600")
-        window.configure(bg=self.c("bg"))
+
+        window.configure(
+            bg=self.c("bg")
+        )
 
         window.transient(self)
         window.grab_set()
@@ -1945,7 +2165,7 @@ class CarManager(tk.Tk):
         window.destroy()
 
     # ========================================================
-    # ADD SERVICE
+    # SERVICE FORM
     # ========================================================
 
     def add_service(self):
@@ -1956,6 +2176,25 @@ class CarManager(tk.Tk):
             return
 
         def save(values):
+
+            try:
+
+                mileage = int(
+                    values["mileage"] or 0
+                )
+
+                cost = float(
+                    values["cost"] or 0
+                )
+
+            except ValueError:
+
+                messagebox.showwarning(
+                    "Car Manager",
+                    "Mileage and cost must be numbers."
+                )
+
+                return
 
             self.database.execute(
                 """
@@ -1975,8 +2214,8 @@ class CarManager(tk.Tk):
                     car_id,
                     values["title"],
                     values["category"],
-                    int(values["mileage"] or 0),
-                    float(values["cost"] or 0),
+                    mileage,
+                    cost,
                     values["date"] or str(date.today()),
                     values["notes"]
                 )
@@ -1998,7 +2237,7 @@ class CarManager(tk.Tk):
         )
 
     # ========================================================
-    # ADD FUEL
+    # FUEL FORM
     # ========================================================
 
     def add_fuel(self):
@@ -2009,6 +2248,29 @@ class CarManager(tk.Tk):
             return
 
         def save(values):
+
+            try:
+
+                liters = float(
+                    values["liters"] or 0
+                )
+
+                price = float(
+                    values["price"] or 0
+                )
+
+                mileage = int(
+                    values["mileage"] or 0
+                )
+
+            except ValueError:
+
+                messagebox.showwarning(
+                    "Car Manager",
+                    "Liters, price and mileage must be numbers."
+                )
+
+                return
 
             self.database.execute(
                 """
@@ -2025,9 +2287,9 @@ class CarManager(tk.Tk):
                 """,
                 (
                     car_id,
-                    float(values["liters"] or 0),
-                    float(values["price"] or 0),
-                    int(values["mileage"] or 0),
+                    liters,
+                    price,
+                    mileage,
                     values["date"] or str(date.today()),
                     values["station"]
                 )
@@ -2048,7 +2310,7 @@ class CarManager(tk.Tk):
         )
 
     # ========================================================
-    # ADD EXPENSE
+    # EXPENSE FORM
     # ========================================================
 
     def add_expense(self):
@@ -2059,6 +2321,21 @@ class CarManager(tk.Tk):
             return
 
         def save(values):
+
+            try:
+
+                amount = float(
+                    values["amount"] or 0
+                )
+
+            except ValueError:
+
+                messagebox.showwarning(
+                    "Car Manager",
+                    "Amount must be a number."
+                )
+
+                return
 
             self.database.execute(
                 """
@@ -2077,7 +2354,7 @@ class CarManager(tk.Tk):
                     car_id,
                     values["title"],
                     values["category"],
-                    float(values["amount"] or 0),
+                    amount,
                     values["date"] or str(date.today()),
                     values["notes"]
                 )
@@ -2098,7 +2375,7 @@ class CarManager(tk.Tk):
         )
 
     # ========================================================
-    # ADD REMINDER
+    # REMINDER FORM
     # ========================================================
 
     def add_reminder(self):
@@ -2110,6 +2387,21 @@ class CarManager(tk.Tk):
 
         def save(values):
 
+            try:
+
+                mileage = int(
+                    values["mileage"] or 0
+                )
+
+            except ValueError:
+
+                messagebox.showwarning(
+                    "Car Manager",
+                    "Mileage must be a number."
+                )
+
+                return
+
             self.database.execute(
                 """
                 INSERT INTO reminders
@@ -2118,15 +2410,17 @@ class CarManager(tk.Tk):
                     title,
                     due_date,
                     due_mileage,
+                    done,
                     notes
                 )
-                VALUES (?,?,?,?,?)
+                VALUES (?,?,?,?,?,?)
                 """,
                 (
                     car_id,
                     values["title"],
                     values["date"],
-                    int(values["mileage"] or 0),
+                    mileage,
+                    0,
                     values["notes"]
                 )
             )
@@ -2145,7 +2439,7 @@ class CarManager(tk.Tk):
         )
 
     # ========================================================
-    # DELETE RECORD
+    # DELETE
     # ========================================================
 
     def delete_record(
@@ -2165,14 +2459,16 @@ class CarManager(tk.Tk):
             (record_id,)
         )
 
-        {
+        pages = {
             "service": self.show_service,
             "fuel": self.show_fuel,
             "expenses": self.show_expenses
-        }[table]()
+        }
+
+        pages[table]()
 
     # ========================================================
-    # REMINDER
+    # REMINDER TOGGLE
     # ========================================================
 
     def toggle_reminder(
@@ -2225,7 +2521,10 @@ class CarManager(tk.Tk):
             if not rows:
                 continue
 
-            path = Path(folder) / f"{table}.csv"
+            path = (
+                Path(folder)
+                / f"{table}.csv"
+            )
 
             with path.open(
                 "w",
@@ -2290,8 +2589,13 @@ class CarManager(tk.Tk):
 
         window = tk.Toplevel(self)
 
-        window.title("About Car Manager")
-        window.geometry("470x340")
+        window.title(
+            "About Car Manager"
+        )
+
+        window.geometry(
+            "470x340"
+        )
 
         window.configure(
             bg=self.c("bg")
