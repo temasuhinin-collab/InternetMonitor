@@ -1,7 +1,8 @@
-name: Build Car Manager 3.0
+name: Build Car Manager
 
 on:
   workflow_dispatch:
+
   push:
     branches:
       - main
@@ -10,8 +11,11 @@ permissions:
   contents: read
 
 jobs:
+
   build:
+
     name: Build Windows EXE
+
     runs-on: windows-latest
 
     steps:
@@ -30,7 +34,13 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install pyinstaller
 
-      - name: Build Car Manager 3.0
+      - name: Check Python
+        shell: pwsh
+        run: |
+          python --version
+          pyinstaller --version
+
+      - name: Build application
         shell: pwsh
         run: |
           pyinstaller `
@@ -41,7 +51,7 @@ jobs:
             --name CarManager `
             app.py
 
-      - name: Verify EXE
+      - name: Verify build
         shell: pwsh
         run: |
           if (!(Test-Path "dist\CarManager.exe")) {
@@ -49,12 +59,17 @@ jobs:
             exit 1
           }
 
-          Write-Host "Build successful:"
-          Get-Item "dist\CarManager.exe"
+          $file = Get-Item "dist\CarManager.exe"
 
-      - name: Upload EXE
+          Write-Host "================================="
+          Write-Host "BUILD SUCCESSFUL"
+          Write-Host "File: $($file.FullName)"
+          Write-Host "Size: $([math]::Round($file.Length / 1MB, 2)) MB"
+          Write-Host "================================="
+
+      - name: Upload Windows EXE
         uses: actions/upload-artifact@v7
         with:
-          name: CarManager-3.0-Windows
+          name: CarManager-3.1-Windows
           path: dist/CarManager.exe
           if-no-files-found: error
