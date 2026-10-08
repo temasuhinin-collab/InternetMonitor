@@ -1,21 +1,20 @@
+import csv
+import sqlite3
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-import sqlite3
-import csv
-import webbrowser
-from datetime import datetime, date
 from pathlib import Path
+from datetime import date
+import webbrowser
 
 
 # ============================================================
-# CAR MANAGER
-# Author: Artem Sukhinin
+# CAR MANAGER 3.0
+# Developed by Artem Sukhinin
 # Telegram: https://t.me/artem_sukhinin
 # ============================================================
 
 APP_NAME = "Car Manager"
-VERSION = "1.0.0"
-
+VERSION = "3.0.0"
 AUTHOR = "Artem Sukhinin"
 TELEGRAM_URL = "https://t.me/artem_sukhinin"
 
@@ -28,35 +27,35 @@ DB_FILE = Path.home() / "CarManager.db"
 
 THEMES = {
     "dark": {
-        "bg": "#0b1220",
-        "surface": "#111a2b",
-        "surface2": "#17233a",
-        "border": "#263650",
-        "text": "#f4f7fb",
-        "muted": "#8fa1ba",
-        "accent": "#4a90c2",
-        "accent_hover": "#5da4d8",
-        "success": "#35d07f",
-        "danger": "#ff5f6d",
-        "warning": "#f5b942",
-        "input": "#0e1727",
-        "selected": "#1e4f8a",
+        "bg": "#07111F",
+        "surface": "#0D1929",
+        "surface2": "#132238",
+        "surface3": "#172A43",
+        "border": "#223A59",
+        "text": "#F5F8FC",
+        "muted": "#879AB3",
+        "accent": "#4DA3FF",
+        "accent2": "#725CFF",
+        "success": "#35D39A",
+        "warning": "#FFB95E",
+        "danger": "#FF5F76",
+        "input": "#091625",
     },
 
     "light": {
-        "bg": "#f3f6fa",
-        "surface": "#ffffff",
-        "surface2": "#e9eef5",
-        "border": "#d7dfeb",
-        "text": "#182230",
-        "muted": "#68778d",
-        "accent": "#2878b5",
-        "accent_hover": "#3a8bc8",
-        "success": "#159957",
-        "danger": "#dc3545",
-        "warning": "#c88900",
-        "input": "#ffffff",
-        "selected": "#dcecf9",
+        "bg": "#F3F6FA",
+        "surface": "#FFFFFF",
+        "surface2": "#EEF3F9",
+        "surface3": "#E5ECF5",
+        "border": "#D7E0EB",
+        "text": "#162236",
+        "muted": "#6D7C91",
+        "accent": "#277FEA",
+        "accent2": "#6757E8",
+        "success": "#159A70",
+        "warning": "#D78B19",
+        "danger": "#E45068",
+        "input": "#F8FAFC",
     }
 }
 
@@ -67,358 +66,103 @@ THEMES = {
 
 class Database:
 
-    def __init__(self, path):
-        self.conn = sqlite3.connect(path)
-        self.conn.row_factory = sqlite3.Row
-        self.create_tables()
+    def __init__(self):
+        self.connection = sqlite3.connect(DB_FILE)
+        self.connection.row_factory = sqlite3.Row
+        self.initialize()
 
-    def create_tables(self):
+    def initialize(self):
 
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS cars (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                make TEXT NOT NULL,
-                model TEXT NOT NULL,
-                year INTEGER,
-                mileage INTEGER DEFAULT 0,
-                vin TEXT,
-                plate TEXT,
-                engine TEXT,
-                transmission TEXT,
-                drive TEXT,
-                color TEXT,
-                notes TEXT,
-                created_at TEXT NOT NULL
-            )
+        cursor = self.connection.cursor()
+
+        cursor.executescript("""
+        CREATE TABLE IF NOT EXISTS cars (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            make TEXT,
+            model TEXT,
+            year INTEGER,
+            mileage INTEGER DEFAULT 0,
+            vin TEXT,
+            plate TEXT,
+            color TEXT,
+            engine TEXT,
+            transmission TEXT,
+            drive TEXT,
+            fuel TEXT,
+            notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS service (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            car_id INTEGER,
+            title TEXT,
+            category TEXT,
+            mileage INTEGER DEFAULT 0,
+            cost REAL DEFAULT 0,
+            date TEXT,
+            notes TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS fuel (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            car_id INTEGER,
+            liters REAL DEFAULT 0,
+            price REAL DEFAULT 0,
+            mileage INTEGER DEFAULT 0,
+            date TEXT,
+            station TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS expenses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            car_id INTEGER,
+            title TEXT,
+            category TEXT,
+            amount REAL DEFAULT 0,
+            date TEXT,
+            notes TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS reminders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            car_id INTEGER,
+            title TEXT,
+            due_date TEXT,
+            due_mileage INTEGER DEFAULT 0,
+            done INTEGER DEFAULT 0,
+            notes TEXT
+        );
         """)
 
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS service (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                car_id INTEGER NOT NULL,
-                date TEXT NOT NULL,
-                mileage INTEGER DEFAULT 0,
-                category TEXT,
-                description TEXT,
-                cost REAL DEFAULT 0,
-                workshop TEXT,
-                FOREIGN KEY(car_id) REFERENCES cars(id)
-            )
-        """)
+        self.connection.commit()
 
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS fuel (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                car_id INTEGER NOT NULL,
-                date TEXT NOT NULL,
-                mileage INTEGER DEFAULT 0,
-                liters REAL DEFAULT 0,
-                price REAL DEFAULT 0,
-                total REAL DEFAULT 0,
-                station TEXT,
-                FOREIGN KEY(car_id) REFERENCES cars(id)
-            )
-        """)
+    def execute(self, query, params=(), fetch=False):
 
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS reminders (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                car_id INTEGER NOT NULL,
-                title TEXT NOT NULL,
-                due_date TEXT,
-                due_mileage INTEGER,
-                completed INTEGER DEFAULT 0,
-                FOREIGN KEY(car_id) REFERENCES cars(id)
-            )
-        """)
+        cursor = self.connection.execute(query, params)
 
-        self.conn.commit()
+        self.connection.commit()
 
-    # --------------------------------------------------------
-    # Cars
-    # --------------------------------------------------------
+        if fetch:
+            return cursor.fetchall()
 
-    def get_cars(self):
-        return self.conn.execute(
-            "SELECT * FROM cars ORDER BY id DESC"
-        ).fetchall()
+        return cursor
 
-    def get_car(self, car_id):
-        return self.conn.execute(
-            "SELECT * FROM cars WHERE id=?",
-            (car_id,)
-        ).fetchone()
+    def one(self, query, params=()):
 
-    def add_car(self, data):
+        cursor = self.connection.execute(query, params)
 
-        cursor = self.conn.execute("""
-            INSERT INTO cars (
-                make,
-                model,
-                year,
-                mileage,
-                vin,
-                plate,
-                engine,
-                transmission,
-                drive,
-                color,
-                notes,
-                created_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            data["make"],
-            data["model"],
-            data["year"],
-            data["mileage"],
-            data["vin"],
-            data["plate"],
-            data["engine"],
-            data["transmission"],
-            data["drive"],
-            data["color"],
-            data["notes"],
-            datetime.now().isoformat()
-        ))
+        return cursor.fetchone()
 
-        self.conn.commit()
+    def scalar(self, query, params=()):
 
-        return cursor.lastrowid
+        row = self.one(query, params)
 
-    def update_car(self, car_id, data):
+        if not row:
+            return 0
 
-        self.conn.execute("""
-            UPDATE cars SET
-                make=?,
-                model=?,
-                year=?,
-                mileage=?,
-                vin=?,
-                plate=?,
-                engine=?,
-                transmission=?,
-                drive=?,
-                color=?,
-                notes=?
-            WHERE id=?
-        """, (
-            data["make"],
-            data["model"],
-            data["year"],
-            data["mileage"],
-            data["vin"],
-            data["plate"],
-            data["engine"],
-            data["transmission"],
-            data["drive"],
-            data["color"],
-            data["notes"],
-            car_id
-        ))
-
-        self.conn.commit()
-
-    def delete_car(self, car_id):
-
-        self.conn.execute(
-            "DELETE FROM service WHERE car_id=?",
-            (car_id,)
-        )
-
-        self.conn.execute(
-            "DELETE FROM fuel WHERE car_id=?",
-            (car_id,)
-        )
-
-        self.conn.execute(
-            "DELETE FROM reminders WHERE car_id=?",
-            (car_id,)
-        )
-
-        self.conn.execute(
-            "DELETE FROM cars WHERE id=?",
-            (car_id,)
-        )
-
-        self.conn.commit()
-
-    # --------------------------------------------------------
-    # Service
-    # --------------------------------------------------------
-
-    def add_service(self, data):
-
-        self.conn.execute("""
-            INSERT INTO service (
-                car_id,
-                date,
-                mileage,
-                category,
-                description,
-                cost,
-                workshop
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (
-            data["car_id"],
-            data["date"],
-            data["mileage"],
-            data["category"],
-            data["description"],
-            data["cost"],
-            data["workshop"]
-        ))
-
-        self.conn.commit()
-
-    def get_service(self, car_id=None):
-
-        if car_id:
-            return self.conn.execute("""
-                SELECT service.*, cars.make, cars.model
-                FROM service
-                JOIN cars ON cars.id = service.car_id
-                WHERE car_id=?
-                ORDER BY service.date DESC, service.id DESC
-            """, (car_id,)).fetchall()
-
-        return self.conn.execute("""
-            SELECT service.*, cars.make, cars.model
-            FROM service
-            JOIN cars ON cars.id = service.car_id
-            ORDER BY service.date DESC, service.id DESC
-        """).fetchall()
-
-    def delete_service(self, service_id):
-
-        self.conn.execute(
-            "DELETE FROM service WHERE id=?",
-            (service_id,)
-        )
-
-        self.conn.commit()
-
-    # --------------------------------------------------------
-    # Fuel
-    # --------------------------------------------------------
-
-    def add_fuel(self, data):
-
-        self.conn.execute("""
-            INSERT INTO fuel (
-                car_id,
-                date,
-                mileage,
-                liters,
-                price,
-                total,
-                station
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (
-            data["car_id"],
-            data["date"],
-            data["mileage"],
-            data["liters"],
-            data["price"],
-            data["total"],
-            data["station"]
-        ))
-
-        self.conn.commit()
-
-    def get_fuel(self, car_id=None):
-
-        if car_id:
-            return self.conn.execute("""
-                SELECT fuel.*, cars.make, cars.model
-                FROM fuel
-                JOIN cars ON cars.id = fuel.car_id
-                WHERE car_id=?
-                ORDER BY fuel.date DESC, fuel.id DESC
-            """, (car_id,)).fetchall()
-
-        return self.conn.execute("""
-            SELECT fuel.*, cars.make, cars.model
-            FROM fuel
-            JOIN cars ON cars.id = fuel.car_id
-            ORDER BY fuel.date DESC, fuel.id DESC
-        """).fetchall()
-
-    # --------------------------------------------------------
-    # Reminders
-    # --------------------------------------------------------
-
-    def add_reminder(self, data):
-
-        self.conn.execute("""
-            INSERT INTO reminders (
-                car_id,
-                title,
-                due_date,
-                due_mileage
-            )
-            VALUES (?, ?, ?, ?)
-        """, (
-            data["car_id"],
-            data["title"],
-            data["due_date"],
-            data["due_mileage"]
-        ))
-
-        self.conn.commit()
-
-    def get_reminders(self, car_id=None):
-
-        if car_id:
-            return self.conn.execute("""
-                SELECT reminders.*, cars.make, cars.model
-                FROM reminders
-                JOIN cars ON cars.id = reminders.car_id
-                WHERE car_id=? AND completed=0
-                ORDER BY due_date ASC
-            """, (car_id,)).fetchall()
-
-        return self.conn.execute("""
-            SELECT reminders.*, cars.make, cars.model
-            FROM reminders
-            JOIN cars ON cars.id = reminders.car_id
-            WHERE completed=0
-            ORDER BY due_date ASC
-        """).fetchall()
-
-    def complete_reminder(self, reminder_id):
-
-        self.conn.execute(
-            "UPDATE reminders SET completed=1 WHERE id=?",
-            (reminder_id,)
-        )
-
-        self.conn.commit()
-
-    # --------------------------------------------------------
-    # Statistics
-    # --------------------------------------------------------
-
-    def total_service_cost(self):
-
-        row = self.conn.execute(
-            "SELECT COALESCE(SUM(cost), 0) AS total FROM service"
-        ).fetchone()
-
-        return row["total"]
-
-    def total_fuel_cost(self):
-
-        row = self.conn.execute(
-            "SELECT COALESCE(SUM(total), 0) AS total FROM fuel"
-        ).fetchone()
-
-        return row["total"]
-
-    def close(self):
-        self.conn.close()
+        return list(row)[0] or 0
 
 
 # ============================================================
@@ -431,225 +175,119 @@ class CarManager(tk.Tk):
 
         super().__init__()
 
-        self.db = Database(DB_FILE)
-
         self.theme_name = "dark"
         self.colors = THEMES[self.theme_name]
 
-        self.selected_car_id = None
-        self.current_page = "dashboard"
+        self.database = Database()
 
-        self.title(
-            f"{APP_NAME} {VERSION}"
-        )
+        self.title(f"{APP_NAME} {VERSION}")
 
-        self.geometry("1280x820")
-        self.minsize(1050, 700)
+        self.geometry("1380x850")
+        self.minsize(1100, 700)
 
-        self.configure(
-            bg=self.colors["bg"]
-        )
+        self.configure(bg=self.c("bg"))
 
-        self.protocol(
-            "WM_DELETE_WINDOW",
-            self.close
-        )
+        self.current_page = None
 
-        self.setup_style()
-        self.create_menu()
-        self.create_layout()
-        self.refresh_dashboard()
+        self.style = ttk.Style(self)
+
+        try:
+            self.style.theme_use("clam")
+        except Exception:
+            pass
+
+        self.build_menu()
+        self.build_interface()
+
+        self.show_dashboard()
 
     # ========================================================
-    # STYLE
+    # HELPERS
     # ========================================================
 
-    def setup_style(self):
+    def c(self, name):
+        return self.colors[name]
 
-        style = ttk.Style(self)
+    def money(self, value):
 
-        style.theme_use("clam")
+        try:
+            return f"₽ {float(value):,.0f}".replace(",", " ")
+        except Exception:
+            return "₽ 0"
 
-        c = self.colors
+    def clear_content(self):
 
-        style.configure(
-            "Treeview",
-            background=c["surface"],
-            fieldbackground=c["surface"],
-            foreground=c["text"],
-            borderwidth=0,
-            rowheight=38,
-            font=("Segoe UI", 10)
-        )
-
-        style.configure(
-            "Treeview.Heading",
-            background=c["surface2"],
-            foreground=c["muted"],
-            borderwidth=0,
-            relief="flat",
-            font=("Segoe UI Semibold", 9)
-        )
-
-        style.map(
-            "Treeview",
-            background=[
-                ("selected", c["selected"])
-            ],
-            foreground=[
-                ("selected", c["text"])
-            ]
-        )
-
-        style.configure(
-            "TCombobox",
-            fieldbackground=c["input"],
-            background=c["input"],
-            foreground=c["text"],
-            borderwidth=0
-        )
+        for widget in self.content.winfo_children():
+            widget.destroy()
 
     # ========================================================
     # MENU
     # ========================================================
 
-    def create_menu(self):
+    def build_menu(self):
 
-        menu = tk.Menu(
-            self,
-            tearoff=False,
-            bg=self.colors["surface"],
-            fg=self.colors["text"],
-            activebackground=self.colors["selected"],
-            activeforeground=self.colors["text"]
-        )
+        menu = tk.Menu(self)
 
-        file_menu = tk.Menu(
-            menu,
-            tearoff=False,
-            bg=self.colors["surface"],
-            fg=self.colors["text"]
-        )
+        file_menu = tk.Menu(menu, tearoff=0)
 
         file_menu.add_command(
-            label="Новый автомобиль",
-            command=self.add_car_dialog
-        )
-
-        file_menu.add_command(
-            label="Экспорт CSV",
-            command=self.export_csv
+            label="Export CSV",
+            command=self.export_all
         )
 
         file_menu.add_separator()
 
         file_menu.add_command(
-            label="Выход",
-            command=self.close
+            label="Exit",
+            command=self.destroy
         )
 
         menu.add_cascade(
-            label="Файл",
+            label="File",
             menu=file_menu
         )
 
-        view_menu = tk.Menu(
-            menu,
-            tearoff=False,
-            bg=self.colors["surface"],
-            fg=self.colors["text"]
-        )
-
-        view_menu.add_command(
-            label="Dashboard",
-            command=self.show_dashboard
-        )
-
-        view_menu.add_command(
-            label="Мой гараж",
-            command=self.show_garage
-        )
-
-        view_menu.add_command(
-            label="Обслуживание",
-            command=self.show_service
-        )
-
-        view_menu.add_command(
-            label="Заправки",
-            command=self.show_fuel
-        )
-
-        view_menu.add_command(
-            label="Напоминания",
-            command=self.show_reminders
-        )
-
-        menu.add_cascade(
-            label="Разделы",
-            menu=view_menu
-        )
-
-        theme_menu = tk.Menu(
-            menu,
-            tearoff=False,
-            bg=self.colors["surface"],
-            fg=self.colors["text"]
-        )
+        theme_menu = tk.Menu(menu, tearoff=0)
 
         theme_menu.add_command(
-            label="🌙 Тёмная",
+            label="Dark",
             command=lambda: self.set_theme("dark")
         )
 
         theme_menu.add_command(
-            label="☀ Светлая",
+            label="Light",
             command=lambda: self.set_theme("light")
         )
 
         menu.add_cascade(
-            label="Тема",
+            label="Theme",
             menu=theme_menu
         )
 
-        help_menu = tk.Menu(
-            menu,
-            tearoff=False,
-            bg=self.colors["surface"],
-            fg=self.colors["text"]
-        )
+        help_menu = tk.Menu(menu, tearoff=0)
 
         help_menu.add_command(
-            label="О программе",
-            command=self.about
-        )
-
-        help_menu.add_command(
-            label="Telegram автора",
-            command=lambda: webbrowser.open(
-                TELEGRAM_URL
-            )
+            label="About",
+            command=self.show_about
         )
 
         menu.add_cascade(
-            label="Помощь",
+            label="Help",
             menu=help_menu
         )
 
-        self.config(
-            menu=menu
-        )
+        self.config(menu=menu)
 
     # ========================================================
-    # LAYOUT
+    # MAIN UI
     # ========================================================
 
-    def create_layout(self):
+    def build_interface(self):
 
         self.sidebar = tk.Frame(
             self,
-            bg=self.colors["surface"],
-            width=230
+            bg=self.c("surface"),
+            width=245
         )
 
         self.sidebar.pack(
@@ -659,98 +297,178 @@ class CarManager(tk.Tk):
 
         self.sidebar.pack_propagate(False)
 
-        self.content = tk.Frame(
+        self.build_sidebar()
+
+        self.main = tk.Frame(
             self,
-            bg=self.colors["bg"]
+            bg=self.c("bg")
         )
 
-        self.content.pack(
+        self.main.pack(
             side="left",
             fill="both",
             expand=True
         )
 
-        self.create_sidebar()
+        self.header = tk.Frame(
+            self.main,
+            bg=self.c("bg"),
+            height=75
+        )
+
+        self.header.pack(
+            fill="x",
+            padx=30,
+            pady=(20, 0)
+        )
+
+        self.header.pack_propagate(False)
+
+        self.page_title = tk.Label(
+            self.header,
+            text="Dashboard",
+            font=("Segoe UI", 24, "bold"),
+            fg=self.c("text"),
+            bg=self.c("bg")
+        )
+
+        self.page_title.pack(
+            side="left",
+            anchor="center"
+        )
+
+        self.search_entry = tk.Entry(
+            self.header,
+            relief="flat",
+            bg=self.c("surface"),
+            fg=self.c("muted"),
+            insertbackground=self.c("text"),
+            font=("Segoe UI", 10)
+        )
+
+        self.search_entry.insert(
+            0,
+            "Search garage..."
+        )
+
+        self.search_entry.pack(
+            side="right",
+            ipadx=14,
+            ipady=10
+        )
+
+        self.search_entry.bind(
+            "<Return>",
+            lambda event: self.show_garage()
+        )
+
+        self.content = tk.Frame(
+            self.main,
+            bg=self.c("bg")
+        )
+
+        self.content.pack(
+            fill="both",
+            expand=True,
+            padx=30,
+            pady=10
+        )
 
     # ========================================================
     # SIDEBAR
     # ========================================================
 
-    def create_sidebar(self):
+    def build_sidebar(self):
 
-        c = self.colors
-
-        for widget in self.sidebar.winfo_children():
-            widget.destroy()
-
-        logo = tk.Frame(
+        brand = tk.Frame(
             self.sidebar,
-            bg=c["surface"]
+            bg=self.c("surface")
         )
 
-        logo.pack(
+        brand.pack(
             fill="x",
             padx=20,
             pady=(25, 30)
         )
 
+        logo = tk.Label(
+            brand,
+            text="CM",
+            font=("Segoe UI", 18, "bold"),
+            fg="#FFFFFF",
+            bg=self.c("accent"),
+            padx=12,
+            pady=8
+        )
+
+        logo.pack(side="left")
+
+        info = tk.Frame(
+            brand,
+            bg=self.c("surface")
+        )
+
+        info.pack(
+            side="left",
+            padx=10
+        )
+
         tk.Label(
-            logo,
-            text="CAR",
-            bg=c["surface"],
-            fg=c["accent"],
-            font=("Segoe UI Black", 20)
+            info,
+            text="CAR MANAGER",
+            font=("Segoe UI", 12, "bold"),
+            fg=self.c("text"),
+            bg=self.c("surface")
         ).pack(anchor="w")
 
         tk.Label(
-            logo,
-            text="MANAGER",
-            bg=c["surface"],
-            fg=c["text"],
-            font=("Segoe UI Semibold", 13)
+            info,
+            text="VERSION 3.0",
+            font=("Segoe UI", 8, "bold"),
+            fg=self.c("accent"),
+            bg=self.c("surface")
         ).pack(anchor="w")
 
-        tk.Label(
-            logo,
-            text=f"v{VERSION}",
-            bg=c["surface"],
-            fg=c["muted"],
-            font=("Segoe UI", 8)
-        ).pack(anchor="w", pady=(3, 0))
+        self.nav_buttons = []
 
-        self.nav_button(
-            "⌂",
-            "Dashboard",
-            self.show_dashboard
-        )
+        navigation = [
+            ("⌂   Dashboard", self.show_dashboard),
+            ("🚗   Garage", self.show_garage),
+            ("🔧   Service", self.show_service),
+            ("⛽   Fuel", self.show_fuel),
+            ("💳   Expenses", self.show_expenses),
+            ("◷   Reminders", self.show_reminders),
+        ]
 
-        self.nav_button(
-            "🚗",
-            "Мой гараж",
-            self.show_garage
-        )
+        for title, command in navigation:
 
-        self.nav_button(
-            "🔧",
-            "Обслуживание",
-            self.show_service
-        )
+            button = tk.Button(
+                self.sidebar,
+                text=title,
+                command=command,
+                relief="flat",
+                bd=0,
+                anchor="w",
+                cursor="hand2",
+                bg=self.c("surface"),
+                fg=self.c("muted"),
+                activebackground=self.c("surface2"),
+                activeforeground=self.c("text"),
+                font=("Segoe UI", 10, "bold"),
+                padx=22,
+                pady=12
+            )
 
-        self.nav_button(
-            "⛽",
-            "Заправки",
-            self.show_fuel
-        )
+            button.pack(
+                fill="x",
+                pady=2
+            )
 
-        self.nav_button(
-            "🔔",
-            "Напоминания",
-            self.show_reminders
-        )
+            self.nav_buttons.append(button)
 
         spacer = tk.Frame(
             self.sidebar,
-            bg=c["surface"]
+            bg=self.c("surface")
         )
 
         spacer.pack(
@@ -758,229 +476,58 @@ class CarManager(tk.Tk):
             expand=True
         )
 
-        author = tk.Frame(
-            self.sidebar,
-            bg=c["surface"]
-        )
+        bottom = [
+            ("☼   Switch theme", self.toggle_theme),
+            ("ⓘ   About", self.show_about)
+        ]
 
-        author.pack(
-            fill="x",
-            padx=20,
-            pady=20
-        )
+        for title, command in bottom:
 
-        tk.Label(
-            author,
-            text="Created by",
-            bg=c["surface"],
-            fg=c["muted"],
-            font=("Segoe UI", 8)
-        ).pack(anchor="w")
+            button = tk.Button(
+                self.sidebar,
+                text=title,
+                command=command,
+                relief="flat",
+                bd=0,
+                anchor="w",
+                cursor="hand2",
+                bg=self.c("surface"),
+                fg=self.c("muted"),
+                activebackground=self.c("surface2"),
+                activeforeground=self.c("text"),
+                font=("Segoe UI", 10),
+                padx=22,
+                pady=11
+            )
 
-        link = tk.Label(
-            author,
-            text="Artem Sukhinin",
-            bg=c["surface"],
-            fg=c["accent"],
+            button.pack(fill="x")
+
+    # ========================================================
+    # BUTTON
+    # ========================================================
+
+    def button(
+        self,
+        parent,
+        text,
+        command,
+        primary=True
+    ):
+
+        return tk.Button(
+            parent,
+            text=text,
+            command=command,
+            relief="flat",
+            bd=0,
             cursor="hand2",
-            font=("Segoe UI Semibold", 9)
-        )
-
-        link.pack(anchor="w")
-
-        link.bind(
-            "<Button-1>",
-            lambda e: webbrowser.open(
-                TELEGRAM_URL
-            )
-        )
-
-    def nav_button(self, icon, title, command):
-
-        c = self.colors
-
-        frame = tk.Frame(
-            self.sidebar,
-            bg=c["surface"]
-        )
-
-        frame.pack(
-            fill="x",
-            padx=12,
-            pady=3
-        )
-
-        button = tk.Button(
-            frame,
-            text=f"  {icon}   {title}",
-            command=command,
-            anchor="w",
-            relief="flat",
-            bd=0,
-            bg=c["surface"],
-            fg=c["text"],
-            activebackground=c["selected"],
-            activeforeground=c["text"],
-            font=("Segoe UI Semibold", 10),
-            padx=12,
-            pady=10,
-            cursor="hand2"
-        )
-
-        button.pack(fill="x")
-
-    # ========================================================
-    # COMMON UI
-    # ========================================================
-
-    def clear_content(self):
-
-        for widget in self.content.winfo_children():
-            widget.destroy()
-
-    def page_title(self, title, subtitle=""):
-
-        c = self.colors
-
-        header = tk.Frame(
-            self.content,
-            bg=c["bg"]
-        )
-
-        header.pack(
-            fill="x",
-            padx=32,
-            pady=(28, 20)
-        )
-
-        tk.Label(
-            header,
-            text=title,
-            bg=c["bg"],
-            fg=c["text"],
-            font=("Segoe UI Semibold", 26)
-        ).pack(anchor="w")
-
-        if subtitle:
-
-            tk.Label(
-                header,
-                text=subtitle,
-                bg=c["bg"],
-                fg=c["muted"],
-                font=("Segoe UI", 10)
-            ).pack(
-                anchor="w",
-                pady=(4, 0)
-            )
-
-    def card(
-        self,
-        parent,
-        title,
-        value,
-        subtitle="",
-        width=None
-    ):
-
-        c = self.colors
-
-        frame = tk.Frame(
-            parent,
-            bg=c["surface"],
-            highlightbackground=c["border"],
-            highlightthickness=1
-        )
-
-        if width:
-            frame.configure(width=width)
-
-        tk.Label(
-            frame,
-            text=title.upper(),
-            bg=c["surface"],
-            fg=c["muted"],
-            font=("Segoe UI Semibold", 8)
-        ).pack(
-            anchor="w",
+            font=("Segoe UI", 10, "bold"),
+            bg=self.c("accent") if primary else self.c("surface2"),
+            fg="#FFFFFF" if primary else self.c("text"),
+            activebackground=self.c("accent2"),
+            activeforeground="#FFFFFF",
             padx=18,
-            pady=(16, 4)
-        )
-
-        tk.Label(
-            frame,
-            text=value,
-            bg=c["surface"],
-            fg=c["text"],
-            font=("Segoe UI Semibold", 23)
-        ).pack(
-            anchor="w",
-            padx=18
-        )
-
-        if subtitle:
-
-            tk.Label(
-                frame,
-                text=subtitle,
-                bg=c["surface"],
-                fg=c["muted"],
-                font=("Segoe UI", 9)
-            ).pack(
-                anchor="w",
-                padx=18,
-                pady=(2, 14)
-            )
-
-        return frame
-
-    def primary_button(
-        self,
-        parent,
-        text,
-        command
-    ):
-
-        c = self.colors
-
-        return tk.Button(
-            parent,
-            text=text,
-            command=command,
-            relief="flat",
-            bd=0,
-            bg=c["accent"],
-            fg="#ffffff",
-            activebackground=c["accent_hover"],
-            activeforeground="#ffffff",
-            font=("Segoe UI Semibold", 9),
-            padx=16,
-            pady=9,
-            cursor="hand2"
-        )
-
-    def danger_button(
-        self,
-        parent,
-        text,
-        command
-    ):
-
-        c = self.colors
-
-        return tk.Button(
-            parent,
-            text=text,
-            command=command,
-            relief="flat",
-            bd=0,
-            bg=c["danger"],
-            fg="#ffffff",
-            activebackground="#ff7180",
-            font=("Segoe UI Semibold", 9),
-            padx=14,
-            pady=8,
-            cursor="hand2"
+            pady=10
         )
 
     # ========================================================
@@ -989,211 +536,394 @@ class CarManager(tk.Tk):
 
     def show_dashboard(self):
 
-        self.current_page = "dashboard"
-        self.refresh_dashboard()
-
-    def refresh_dashboard(self):
-
         self.clear_content()
 
-        self.page_title(
-            "Dashboard",
-            "Состояние вашего автопарка"
+        self.page_title.config(
+            text="Dashboard"
         )
 
-        c = self.colors
+        cars = self.database.execute(
+            "SELECT * FROM cars ORDER BY id DESC",
+            fetch=True
+        )
 
-        cars = self.db.get_cars()
+        total_service = self.database.scalar(
+            "SELECT COALESCE(SUM(cost),0) FROM service"
+        )
 
-        total_service = self.db.total_service_cost()
-        total_fuel = self.db.total_fuel_cost()
+        total_fuel = self.database.scalar(
+            "SELECT COALESCE(SUM(liters * price),0) FROM fuel"
+        )
 
-        row = tk.Frame(
+        total_expenses = self.database.scalar(
+            "SELECT COALESCE(SUM(amount),0) FROM expenses"
+        )
+
+        reminders = self.database.scalar(
+            "SELECT COUNT(*) FROM reminders WHERE done=0"
+        )
+
+        # HERO
+
+        hero = tk.Frame(
             self.content,
-            bg=c["bg"]
+            bg=self.c("surface"),
+            highlightthickness=1,
+            highlightbackground=self.c("border"),
+            padx=28,
+            pady=24
         )
 
-        row.pack(
+        hero.pack(
             fill="x",
-            padx=27
+            pady=(5, 18)
         )
 
-        for title, value, subtitle in [
+        tk.Label(
+            hero,
+            text="Your garage. Your data. Your control.",
+            font=("Segoe UI", 24, "bold"),
+            fg=self.c("text"),
+            bg=self.c("surface")
+        ).pack(anchor="w")
+
+        tk.Label(
+            hero,
+            text="Manage vehicles, maintenance, fuel, expenses and reminders from one modern workspace.",
+            font=("Segoe UI", 10),
+            fg=self.c("muted"),
+            bg=self.c("surface")
+        ).pack(
+            anchor="w",
+            pady=(5, 18)
+        )
+
+        actions = tk.Frame(
+            hero,
+            bg=self.c("surface")
+        )
+
+        actions.pack(anchor="w")
+
+        self.button(
+            actions,
+            "+ Add vehicle",
+            self.add_car
+        ).pack(side="left")
+
+        self.button(
+            actions,
+            "＋ Service",
+            self.add_service,
+            False
+        ).pack(side="left", padx=8)
+
+        self.button(
+            actions,
+            "＋ Fuel",
+            self.add_fuel,
+            False
+        ).pack(side="left")
+
+        # STAT CARDS
+
+        cards = tk.Frame(
+            self.content,
+            bg=self.c("bg")
+        )
+
+        cards.pack(
+            fill="x",
+            pady=(0, 18)
+        )
+
+        values = [
             (
-                "Автомобили",
+                "VEHICLES",
                 str(len(cars)),
-                "в вашем гараже"
+                "cars in garage",
+                self.c("accent")
             ),
             (
-                "Обслуживание",
-                f"{total_service:,.0f} ₽",
-                "всего расходов"
+                "SERVICE",
+                self.money(total_service),
+                "maintenance costs",
+                self.c("success")
             ),
             (
-                "Топливо",
-                f"{total_fuel:,.0f} ₽",
-                "всего расходов"
+                "FUEL",
+                self.money(total_fuel),
+                "fuel spending",
+                self.c("warning")
             ),
             (
-                "Напоминания",
-                str(len(self.db.get_reminders())),
-                "активных задач"
+                "EXPENSES",
+                self.money(total_expenses),
+                "additional expenses",
+                self.c("accent2")
+            ),
+            (
+                "REMINDERS",
+                str(reminders),
+                "open tasks",
+                self.c("danger")
             )
-        ]:
+        ]
 
-            box = self.card(
-                row,
-                title,
-                value,
-                subtitle
+        for i in range(len(values)):
+
+            cards.grid_columnconfigure(
+                i,
+                weight=1
             )
 
-            box.pack(
-                side="left",
-                fill="x",
-                expand=True,
+            self.create_stat_card(
+                cards,
+                *values[i]
+            ).grid(
+                row=0,
+                column=i,
+                sticky="nsew",
                 padx=5
             )
 
-        # ----------------------------------------------------
-        # Cars preview
-        # ----------------------------------------------------
+        # LOWER AREA
 
-        tk.Label(
+        lower = tk.Frame(
             self.content,
-            text="Ваши автомобили",
-            bg=c["bg"],
-            fg=c["text"],
-            font=("Segoe UI Semibold", 15)
-        ).pack(
-            anchor="w",
-            padx=32,
-            pady=(30, 10)
+            bg=self.c("bg")
+        )
+
+        lower.pack(
+            fill="both",
+            expand=True
+        )
+
+        left = self.panel(
+            lower,
+            "Garage overview"
+        )
+
+        left.pack(
+            side="left",
+            fill="both",
+            expand=True,
+            padx=(0, 8)
         )
 
         if not cars:
 
-            empty = tk.Frame(
-                self.content,
-                bg=c["surface"],
-                highlightbackground=c["border"],
-                highlightthickness=1
+            tk.Label(
+                left,
+                text="Your garage is empty",
+                font=("Segoe UI", 16, "bold"),
+                fg=self.c("text"),
+                bg=self.c("surface")
+            ).pack(
+                anchor="w",
+                pady=(30, 5)
             )
 
-            empty.pack(
-                fill="x",
-                padx=32
-            )
-
             tk.Label(
-                empty,
-                text="🚗",
-                bg=c["surface"],
-                fg=c["text"],
-                font=("Segoe UI", 30)
-            ).pack(pady=(25, 5))
-
-            tk.Label(
-                empty,
-                text="Гараж пока пуст",
-                bg=c["surface"],
-                fg=c["text"],
-                font=("Segoe UI Semibold", 14)
-            ).pack()
-
-            tk.Label(
-                empty,
-                text="Добавьте первый автомобиль, чтобы начать вести историю.",
-                bg=c["surface"],
-                fg=c["muted"],
-                font=("Segoe UI", 10)
-            ).pack(pady=5)
-
-            self.primary_button(
-                empty,
-                "＋ Добавить автомобиль",
-                self.add_car_dialog
-            ).pack(pady=(10, 25))
+                left,
+                text="Add your first vehicle to start tracking it.",
+                font=("Segoe UI", 10),
+                fg=self.c("muted"),
+                bg=self.c("surface")
+            ).pack(anchor="w")
 
         else:
 
-            container = tk.Frame(
-                self.content,
-                bg=c["bg"]
-            )
+            for car in cars[:5]:
 
-            container.pack(
-                fill="both",
-                expand=True,
-                padx=27
-            )
-
-            for car in cars[:4]:
-
-                car_frame = tk.Frame(
-                    container,
-                    bg=c["surface"],
-                    highlightbackground=c["border"],
-                    highlightthickness=1
+                row = tk.Frame(
+                    left,
+                    bg=self.c("surface")
                 )
 
-                car_frame.pack(
+                row.pack(
                     fill="x",
-                    padx=5,
-                    pady=5
-                )
-
-                title = (
-                    f"{car['make']} {car['model']}"
+                    pady=8
                 )
 
                 tk.Label(
-                    car_frame,
-                    text=title,
-                    bg=c["surface"],
-                    fg=c["text"],
-                    font=("Segoe UI Semibold", 13)
-                ).pack(
-                    side="left",
-                    padx=18,
-                    pady=15
+                    row,
+                    text="🚗",
+                    font=("Segoe UI", 18),
+                    bg=self.c("surface")
+                ).pack(side="left")
+
+                details = tk.Frame(
+                    row,
+                    bg=self.c("surface")
                 )
 
-                info = (
-                    f"{car['year'] or '—'}  •  "
-                    f"{car['mileage']:,} км  •  "
-                    f"{car['engine'] or 'Двигатель —'}"
+                details.pack(
+                    side="left",
+                    padx=12
                 )
 
                 tk.Label(
-                    car_frame,
-                    text=info,
-                    bg=c["surface"],
-                    fg=c["muted"],
-                    font=("Segoe UI", 9)
-                ).pack(
-                    side="left",
-                    padx=10
-                )
+                    details,
+                    text=car["name"],
+                    font=("Segoe UI", 11, "bold"),
+                    fg=self.c("text"),
+                    bg=self.c("surface")
+                ).pack(anchor="w")
 
-                tk.Button(
-                    car_frame,
-                    text="Открыть",
-                    command=lambda x=car["id"]:
-                    self.open_car(x),
-                    relief="flat",
-                    bd=0,
-                    bg=c["surface2"],
-                    fg=c["text"],
-                    activebackground=c["selected"],
-                    font=("Segoe UI Semibold", 9),
-                    padx=12,
-                    pady=7,
-                    cursor="hand2"
-                ).pack(
-                    side="right",
-                    padx=15
-                )
+                tk.Label(
+                    details,
+                    text=(
+                        f'{car["make"] or ""} '
+                        f'{car["model"] or ""}  •  '
+                        f'{car["mileage"]:,} km'
+                    ),
+                    font=("Segoe UI", 9),
+                    fg=self.c("muted"),
+                    bg=self.c("surface")
+                ).pack(anchor="w")
+
+        right = self.panel(
+            lower,
+            "Upcoming reminders"
+        )
+
+        right.pack(
+            side="left",
+            fill="both",
+            expand=True,
+            padx=(8, 0)
+        )
+
+        upcoming = self.database.execute(
+            """
+            SELECT reminders.*, cars.name AS car_name
+            FROM reminders
+            LEFT JOIN cars ON cars.id = reminders.car_id
+            WHERE reminders.done = 0
+            ORDER BY reminders.due_date ASC
+            LIMIT 5
+            """,
+            fetch=True
+        )
+
+        if not upcoming:
+
+            tk.Label(
+                right,
+                text="Everything is up to date ✓",
+                font=("Segoe UI", 11, "bold"),
+                fg=self.c("success"),
+                bg=self.c("surface")
+            ).pack(
+                anchor="w",
+                pady=30
+            )
+
+        for reminder in upcoming:
+
+            tk.Label(
+                right,
+                text=(
+                    f'• {reminder["title"]} '
+                    f'— {reminder["car_name"] or "Vehicle"}'
+                ),
+                font=("Segoe UI", 10),
+                fg=self.c("text"),
+                bg=self.c("surface")
+            ).pack(
+                anchor="w",
+                pady=6
+            )
+
+    # ========================================================
+    # STAT CARD
+    # ========================================================
+
+    def create_stat_card(
+        self,
+        parent,
+        title,
+        value,
+        subtitle,
+        accent
+    ):
+
+        frame = tk.Frame(
+            parent,
+            bg=self.c("surface"),
+            highlightthickness=1,
+            highlightbackground=self.c("border"),
+            padx=17,
+            pady=15
+        )
+
+        tk.Frame(
+            frame,
+            bg=accent,
+            height=3
+        ).pack(
+            fill="x",
+            pady=(0, 13)
+        )
+
+        tk.Label(
+            frame,
+            text=title,
+            font=("Segoe UI", 8, "bold"),
+            fg=self.c("muted"),
+            bg=self.c("surface")
+        ).pack(anchor="w")
+
+        tk.Label(
+            frame,
+            text=value,
+            font=("Segoe UI", 20, "bold"),
+            fg=self.c("text"),
+            bg=self.c("surface")
+        ).pack(anchor="w", pady=4)
+
+        tk.Label(
+            frame,
+            text=subtitle,
+            font=("Segoe UI", 8),
+            fg=self.c("muted"),
+            bg=self.c("surface")
+        ).pack(anchor="w")
+
+        return frame
+
+    # ========================================================
+    # PANEL
+    # ========================================================
+
+    def panel(
+        self,
+        parent,
+        title
+    ):
+
+        frame = tk.Frame(
+            parent,
+            bg=self.c("surface"),
+            highlightthickness=1,
+            highlightbackground=self.c("border"),
+            padx=20,
+            pady=18
+        )
+
+        tk.Label(
+            frame,
+            text=title,
+            font=("Segoe UI", 13, "bold"),
+            fg=self.c("text"),
+            bg=self.c("surface")
+        ).pack(
+            anchor="w",
+            pady=(0, 12)
+        )
+
+        return frame
 
     # ========================================================
     # GARAGE
@@ -1201,637 +931,491 @@ class CarManager(tk.Tk):
 
     def show_garage(self):
 
-        self.current_page = "garage"
-
         self.clear_content()
 
-        self.page_title(
-            "Мой гараж",
-            "Все автомобили и их основные параметры"
+        self.page_title.config(
+            text="Garage"
         )
 
         toolbar = tk.Frame(
             self.content,
-            bg=self.colors["bg"]
+            bg=self.c("bg")
         )
 
         toolbar.pack(
             fill="x",
-            padx=32,
-            pady=(0, 12)
+            pady=(5, 12)
         )
 
-        self.primary_button(
+        self.button(
             toolbar,
-            "＋ Добавить автомобиль",
-            self.add_car_dialog
-        ).pack(side="left")
+            "+ Add vehicle",
+            self.add_car
+        ).pack(side="right")
 
-        search_var = tk.StringVar()
+        query = self.search_entry.get().strip().lower()
 
-        search = tk.Entry(
-            toolbar,
-            textvariable=search_var,
-            bg=self.colors["input"],
-            fg=self.colors["text"],
-            insertbackground=self.colors["text"],
-            relief="flat",
-            font=("Segoe UI", 10)
+        cars = self.database.execute(
+            "SELECT * FROM cars ORDER BY id DESC",
+            fetch=True
         )
 
-        search.pack(
-            side="right",
-            ipady=8,
-            ipadx=10
-        )
+        if query and query != "search garage...":
 
-        tk.Label(
-            toolbar,
-            text="Поиск:",
-            bg=self.colors["bg"],
-            fg=self.colors["muted"],
-            font=("Segoe UI", 9)
-        ).pack(
-            side="right",
-            padx=8
-        )
+            cars = [
+                car
+                for car in cars
+                if query in " ".join(
+                    str(car[key] or "")
+                    for key in [
+                        "name",
+                        "make",
+                        "model",
+                        "vin",
+                        "plate"
+                    ]
+                ).lower()
+            ]
 
-        table_frame = tk.Frame(
+        if not cars:
+
+            tk.Label(
+                self.content,
+                text="No vehicles found",
+                font=("Segoe UI", 16, "bold"),
+                fg=self.c("muted"),
+                bg=self.c("bg")
+            ).pack(pady=80)
+
+            return
+
+        grid = tk.Frame(
             self.content,
-            bg=self.colors["surface"]
+            bg=self.c("bg")
         )
 
-        table_frame.pack(
-            fill="both",
-            expand=True,
-            padx=32,
-            pady=(0, 25)
-        )
-
-        columns = (
-            "car",
-            "year",
-            "mileage",
-            "engine",
-            "transmission",
-            "drive",
-            "plate"
-        )
-
-        tree = ttk.Treeview(
-            table_frame,
-            columns=columns,
-            show="headings"
-        )
-
-        headings = {
-            "car": "Автомобиль",
-            "year": "Год",
-            "mileage": "Пробег",
-            "engine": "Двигатель",
-            "transmission": "КПП",
-            "drive": "Привод",
-            "plate": "Номер"
-        }
-
-        widths = {
-            "car": 220,
-            "year": 70,
-            "mileage": 110,
-            "engine": 140,
-            "transmission": 120,
-            "drive": 100,
-            "plate": 120
-        }
-
-        for col in columns:
-
-            tree.heading(
-                col,
-                text=headings[col]
-            )
-
-            tree.column(
-                col,
-                width=widths[col]
-            )
-
-        tree.pack(
+        grid.pack(
             fill="both",
             expand=True
         )
 
-        def populate():
-
-            tree.delete(
-                *tree.get_children()
-            )
-
-            query = search_var.get().lower()
-
-            for car in self.db.get_cars():
-
-                full = (
-                    f"{car['make']} "
-                    f"{car['model']} "
-                    f"{car['engine'] or ''} "
-                    f"{car['plate'] or ''}"
-                ).lower()
-
-                if query and query not in full:
-                    continue
-
-                tree.insert(
-                    "",
-                    "end",
-                    iid=str(car["id"]),
-                    values=(
-                        f"{car['make']} {car['model']}",
-                        car["year"] or "—",
-                        f"{car['mileage']:,} км",
-                        car["engine"] or "—",
-                        car["transmission"] or "—",
-                        car["drive"] or "—",
-                        car["plate"] or "—"
-                    )
-                )
-
-        populate()
-
-        search_var.trace_add(
-            "write",
-            lambda *args: populate()
-        )
-
-        def open_selected():
-
-            selection = tree.selection()
-
-            if not selection:
-                return
-
-            self.open_car(
-                int(selection[0])
-            )
-
-        tree.bind(
-            "<Double-1>",
-            lambda e: open_selected()
-        )
-
-    # ========================================================
-    # CAR DETAILS
-    # ========================================================
-
-    def open_car(self, car_id):
-
-        car = self.db.get_car(car_id)
-
-        if not car:
-            return
-
-        self.clear_content()
-
-        self.selected_car_id = car_id
-
-        self.page_title(
-            f"{car['make']} {car['model']}",
-            "Карточка автомобиля"
-        )
-
-        c = self.colors
-
-        toolbar = tk.Frame(
-            self.content,
-            bg=c["bg"]
-        )
-
-        toolbar.pack(
-            fill="x",
-            padx=32
-        )
-
-        self.primary_button(
-            toolbar,
-            "✎ Редактировать",
-            lambda: self.edit_car_dialog(car_id)
-        ).pack(side="left")
-
-        self.danger_button(
-            toolbar,
-            "Удалить",
-            lambda: self.delete_car(car_id)
-        ).pack(
-            side="left",
-            padx=8
-        )
-
-        info = tk.Frame(
-            self.content,
-            bg=c["surface"],
-            highlightbackground=c["border"],
-            highlightthickness=1
-        )
-
-        info.pack(
-            fill="x",
-            padx=32,
-            pady=20
-        )
-
-        fields = [
-            ("Год", car["year"] or "—"),
-            ("Пробег", f"{car['mileage']:,} км"),
-            ("Двигатель", car["engine"] or "—"),
-            ("КПП", car["transmission"] or "—"),
-            ("Привод", car["drive"] or "—"),
-            ("Цвет", car["color"] or "—"),
-            ("Госномер", car["plate"] or "—"),
-            ("VIN", car["vin"] or "—"),
-        ]
-
-        for i, (title, value) in enumerate(fields):
-
-            box = tk.Frame(
-                info,
-                bg=c["surface"]
-            )
-
-            box.grid(
-                row=i // 4,
-                column=i % 4,
-                sticky="ew",
-                padx=15,
-                pady=12
-            )
-
-            info.columnconfigure(
-                i % 4,
+        for column in range(2):
+            grid.grid_columnconfigure(
+                column,
                 weight=1
             )
 
-            tk.Label(
-                box,
-                text=title.upper(),
-                bg=c["surface"],
-                fg=c["muted"],
-                font=("Segoe UI Semibold", 8)
-            ).pack(anchor="w")
+        for index, car in enumerate(cars):
 
-            tk.Label(
-                box,
-                text=value,
-                bg=c["surface"],
-                fg=c["text"],
-                font=("Segoe UI Semibold", 11)
-            ).pack(anchor="w", pady=(3, 0))
-
-        if car["notes"]:
-
-            tk.Label(
-                self.content,
-                text="Заметки",
-                bg=c["bg"],
-                fg=c["text"],
-                font=("Segoe UI Semibold", 13)
-            ).pack(
-                anchor="w",
-                padx=32,
-                pady=(0, 7)
+            self.vehicle_card(
+                grid,
+                car
+            ).grid(
+                row=index // 2,
+                column=index % 2,
+                sticky="nsew",
+                padx=7,
+                pady=7
             )
 
-            tk.Label(
-                self.content,
-                text=car["notes"],
-                bg=c["surface"],
-                fg=c["muted"],
-                justify="left",
-                anchor="w",
-                padx=15,
-                pady=12,
-                font=("Segoe UI", 9)
-            ).pack(
-                fill="x",
-                padx=32
-            )
+    # ========================================================
+    # VEHICLE CARD
+    # ========================================================
+
+    def vehicle_card(
+        self,
+        parent,
+        car
+    ):
+
+        frame = tk.Frame(
+            parent,
+            bg=self.c("surface"),
+            highlightthickness=1,
+            highlightbackground=self.c("border"),
+            padx=20,
+            pady=18
+        )
+
+        header = tk.Frame(
+            frame,
+            bg=self.c("surface")
+        )
+
+        header.pack(fill="x")
+
+        tk.Label(
+            header,
+            text="🚗",
+            font=("Segoe UI", 25),
+            bg=self.c("surface")
+        ).pack(side="left")
+
+        tk.Label(
+            header,
+            text=car["name"],
+            font=("Segoe UI", 15, "bold"),
+            fg=self.c("text"),
+            bg=self.c("surface")
+        ).pack(
+            side="left",
+            padx=12
+        )
+
+        tk.Button(
+            header,
+            text="•••",
+            command=lambda: self.vehicle_menu(car),
+            relief="flat",
+            bd=0,
+            bg=self.c("surface"),
+            fg=self.c("muted"),
+            cursor="hand2"
+        ).pack(side="right")
+
+        tk.Label(
+            frame,
+            text=(
+                f'{car["make"] or ""} '
+                f'{car["model"] or ""} '
+                f'{car["year"] or ""}'
+            ),
+            font=("Segoe UI", 10),
+            fg=self.c("muted"),
+            bg=self.c("surface")
+        ).pack(
+            anchor="w",
+            pady=(7, 12)
+        )
+
+        tk.Label(
+            frame,
+            text=(
+                f'ODO  {car["mileage"]:,} km'
+                f'     •     '
+                f'{car["engine"] or "Engine —"}'
+                f'     •     '
+                f'{car["transmission"] or "Transmission —"}'
+            ),
+            font=("Segoe UI", 9, "bold"),
+            fg=self.c("text"),
+            bg=self.c("surface")
+        ).pack(anchor="w")
+
+        stats = self.database.execute(
+            """
+            SELECT
+                COALESCE((SELECT SUM(cost)
+                          FROM service
+                          WHERE car_id = ?), 0) AS service,
+                COALESCE((SELECT SUM(liters * price)
+                          FROM fuel
+                          WHERE car_id = ?), 0) AS fuel
+            """,
+            (car["id"], car["id"]),
+            fetch=True
+        )[0]
+
+        tk.Label(
+            frame,
+            text=(
+                f'Maintenance {self.money(stats["service"])}'
+                f'   •   '
+                f'Fuel {self.money(stats["fuel"])}'
+            ),
+            font=("Segoe UI", 9),
+            fg=self.c("muted"),
+            bg=self.c("surface")
+        ).pack(
+            anchor="w",
+            pady=(7, 0)
+        )
+
+        return frame
+
+    # ========================================================
+    # VEHICLE MENU
+    # ========================================================
+
+    def vehicle_menu(self, car):
+
+        menu = tk.Menu(
+            self,
+            tearoff=0,
+            bg=self.c("surface"),
+            fg=self.c("text")
+        )
+
+        menu.add_command(
+            label="Edit vehicle",
+            command=lambda: self.add_car(car)
+        )
+
+        menu.add_command(
+            label="Delete vehicle",
+            command=lambda: self.delete_car(car)
+        )
+
+        menu.tk_popup(
+            self.winfo_pointerx(),
+            self.winfo_pointery()
+        )
 
     # ========================================================
     # ADD / EDIT CAR
     # ========================================================
 
-    def add_car_dialog(self):
+    def add_car(
+        self,
+        car=None
+    ):
 
-        self.car_dialog()
+        window = tk.Toplevel(self)
 
-    def edit_car_dialog(self, car_id):
-
-        car = self.db.get_car(car_id)
-
-        self.car_dialog(car)
-
-    def car_dialog(self, car=None):
-
-        c = self.colors
-
-        dialog = tk.Toplevel(self)
-
-        dialog.title(
-            "Новый автомобиль"
-            if not car
-            else "Редактировать автомобиль"
+        window.title(
+            "Edit vehicle" if car else "Add vehicle"
         )
 
-        dialog.geometry("620x650")
-        dialog.configure(
-            bg=c["bg"]
+        window.geometry("520x700")
+
+        window.configure(
+            bg=self.c("bg")
         )
 
-        dialog.transient(self)
-        dialog.grab_set()
+        window.transient(self)
+        window.grab_set()
 
         tk.Label(
-            dialog,
-            text=(
-                "Новый автомобиль"
-                if not car
-                else "Редактирование"
-            ),
-            bg=c["bg"],
-            fg=c["text"],
-            font=("Segoe UI Semibold", 20)
+            window,
+            text="Vehicle details",
+            font=("Segoe UI", 20, "bold"),
+            fg=self.c("text"),
+            bg=self.c("bg")
         ).pack(
             anchor="w",
-            padx=30,
-            pady=(25, 20)
+            padx=28,
+            pady=(25, 5)
         )
 
-        form = tk.Frame(
-            dialog,
-            bg=c["bg"]
+        tk.Label(
+            window,
+            text="Keep your vehicle information in one place.",
+            font=("Segoe UI", 9),
+            fg=self.c("muted"),
+            bg=self.c("bg")
+        ).pack(
+            anchor="w",
+            padx=28
         )
 
-        form.pack(
+        container = tk.Frame(
+            window,
+            bg=self.c("bg")
+        )
+
+        container.pack(
             fill="both",
             expand=True,
-            padx=30
+            padx=28,
+            pady=15
         )
+
+        fields = [
+            ("Name", "name"),
+            ("Make", "make"),
+            ("Model", "model"),
+            ("Year", "year"),
+            ("Mileage, km", "mileage"),
+            ("VIN", "vin"),
+            ("Plate", "plate"),
+            ("Color", "color"),
+            ("Engine", "engine"),
+            ("Transmission", "transmission"),
+            ("Drive", "drive"),
+            ("Fuel", "fuel")
+        ]
 
         entries = {}
 
-        fields = [
-            ("make", "Марка", ""),
-            ("model", "Модель", ""),
-            ("year", "Год", ""),
-            ("mileage", "Пробег, км", "0"),
-            ("engine", "Двигатель", ""),
-            ("transmission", "КПП", ""),
-            ("drive", "Привод", ""),
-            ("color", "Цвет", ""),
-            ("plate", "Госномер", ""),
-            ("vin", "VIN", ""),
-        ]
-
-        for index, (
-            key,
-            label,
-            default
-        ) in enumerate(fields):
-
-            row = index // 2
-            column = index % 2
-
-            wrapper = tk.Frame(
-                form,
-                bg=c["bg"]
-            )
-
-            wrapper.grid(
-                row=row,
-                column=column,
-                sticky="ew",
-                padx=6,
-                pady=7
-            )
-
-            form.columnconfigure(
-                column,
-                weight=1
-            )
+        for label, key in fields:
 
             tk.Label(
-                wrapper,
+                container,
                 text=label,
-                bg=c["bg"],
-                fg=c["muted"],
-                font=("Segoe UI", 9)
-            ).pack(anchor="w")
-
-            value = default
-
-            if car:
-                value = car[key] or ""
-
-            var = tk.StringVar(
-                value=str(value)
+                font=("Segoe UI", 8, "bold"),
+                fg=self.c("muted"),
+                bg=self.c("bg")
+            ).pack(
+                anchor="w",
+                pady=(5, 2)
             )
 
             entry = tk.Entry(
-                wrapper,
-                textvariable=var,
-                bg=c["input"],
-                fg=c["text"],
-                insertbackground=c["text"],
+                container,
                 relief="flat",
-                font=("Segoe UI", 10)
+                bg=self.c("input"),
+                fg=self.c("text"),
+                insertbackground=self.c("text")
             )
 
             entry.pack(
                 fill="x",
-                ipady=8,
-                pady=(4, 0)
+                ipady=7
             )
 
-            entries[key] = var
-
-        notes_wrapper = tk.Frame(
-            form,
-            bg=c["bg"]
-        )
-
-        notes_wrapper.grid(
-            row=5,
-            column=0,
-            columnspan=2,
-            sticky="nsew",
-            padx=6,
-            pady=8
-        )
-
-        form.rowconfigure(
-            5,
-            weight=1
-        )
-
-        tk.Label(
-            notes_wrapper,
-            text="Заметки",
-            bg=c["bg"],
-            fg=c["muted"],
-            font=("Segoe UI", 9)
-        ).pack(anchor="w")
-
-        notes = tk.Text(
-            notes_wrapper,
-            height=5,
-            bg=c["input"],
-            fg=c["text"],
-            insertbackground=c["text"],
-            relief="flat",
-            font=("Segoe UI", 10)
-        )
-
-        notes.pack(
-            fill="both",
-            expand=True,
-            pady=(4, 0)
-        )
-
-        if car and car["notes"]:
-            notes.insert(
-                "1.0",
-                car["notes"]
-            )
-
-        buttons = tk.Frame(
-            dialog,
-            bg=c["bg"]
-        )
-
-        buttons.pack(
-            fill="x",
-            padx=30,
-            pady=20
-        )
-
-        def save():
-
-            if not entries["make"].get().strip():
-                messagebox.showwarning(
-                    "Car Manager",
-                    "Введите марку автомобиля.",
-                    parent=dialog
-                )
-                return
-
-            if not entries["model"].get().strip():
-                messagebox.showwarning(
-                    "Car Manager",
-                    "Введите модель автомобиля.",
-                    parent=dialog
-                )
-                return
-
-            try:
-                year = int(
-                    entries["year"].get()
-                    or 0
-                )
-
-                mileage = int(
-                    entries["mileage"].get()
-                    or 0
-                )
-
-            except ValueError:
-
-                messagebox.showwarning(
-                    "Car Manager",
-                    "Год и пробег должны быть числами.",
-                    parent=dialog
-                )
-
-                return
-
-            data = {
-                key: entries[key].get().strip()
-                for key, _, _ in fields
-            }
-
-            data["year"] = year
-            data["mileage"] = mileage
-            data["notes"] = notes.get(
-                "1.0",
-                "end"
-            ).strip()
+            entries[key] = entry
 
             if car:
 
-                self.db.update_car(
-                    car["id"],
-                    data
+                value = car[key]
+
+                if value is not None:
+
+                    entry.insert(
+                        0,
+                        str(value)
+                    )
+
+        def save():
+
+            values = {
+                key: entry.get().strip()
+                for key, entry in entries.items()
+            }
+
+            if not values["name"]:
+
+                messagebox.showwarning(
+                    "Car Manager",
+                    "Enter a vehicle name.",
+                    parent=window
+                )
+
+                return
+
+            if car:
+
+                self.database.execute(
+                    """
+                    UPDATE cars
+                    SET
+                        name=?,
+                        make=?,
+                        model=?,
+                        year=?,
+                        mileage=?,
+                        vin=?,
+                        plate=?,
+                        color=?,
+                        engine=?,
+                        transmission=?,
+                        drive=?,
+                        fuel=?
+                    WHERE id=?
+                    """,
+                    (
+                        values["name"],
+                        values["make"],
+                        values["model"],
+                        int(values["year"] or 0),
+                        int(values["mileage"] or 0),
+                        values["vin"],
+                        values["plate"],
+                        values["color"],
+                        values["engine"],
+                        values["transmission"],
+                        values["drive"],
+                        values["fuel"],
+                        car["id"]
+                    )
                 )
 
             else:
 
-                self.db.add_car(
-                    data
+                self.database.execute(
+                    """
+                    INSERT INTO cars
+                    (
+                        name,
+                        make,
+                        model,
+                        year,
+                        mileage,
+                        vin,
+                        plate,
+                        color,
+                        engine,
+                        transmission,
+                        drive,
+                        fuel
+                    )
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        values["name"],
+                        values["make"],
+                        values["model"],
+                        int(values["year"] or 0),
+                        int(values["mileage"] or 0),
+                        values["vin"],
+                        values["plate"],
+                        values["color"],
+                        values["engine"],
+                        values["transmission"],
+                        values["drive"],
+                        values["fuel"]
+                    )
                 )
 
-            dialog.destroy()
+            window.destroy()
 
-            if self.current_page == "garage":
-                self.show_garage()
-            else:
-                self.show_dashboard()
+            self.show_garage()
 
-        self.primary_button(
-            buttons,
-            "Сохранить",
+        self.button(
+            window,
+            "Save vehicle",
             save
-        ).pack(side="right")
-
-        tk.Button(
-            buttons,
-            text="Отмена",
-            command=dialog.destroy,
-            relief="flat",
-            bd=0,
-            bg=c["surface2"],
-            fg=c["text"],
-            font=("Segoe UI Semibold", 9),
-            padx=16,
-            pady=9,
-            cursor="hand2"
         ).pack(
-            side="right",
-            padx=8
+            fill="x",
+            padx=28,
+            pady=20
         )
 
     # ========================================================
     # DELETE CAR
     # ========================================================
 
-    def delete_car(self, car_id):
+    def delete_car(
+        self,
+        car
+    ):
 
-        car = self.db.get_car(car_id)
-
-        if not car:
-            return
-
-        result = messagebox.askyesno(
-            "Удаление",
-            f"Удалить {car['make']} {car['model']}?\n\n"
-            "Все записи обслуживания, заправок и напоминаний "
-            "этого автомобиля также будут удалены."
+        answer = messagebox.askyesno(
+            "Delete vehicle",
+            f'Delete "{car["name"]}" and all related records?'
         )
 
-        if result:
+        if not answer:
+            return
 
-            self.db.delete_car(
-                car_id
+        for table in [
+            "service",
+            "fuel",
+            "expenses",
+            "reminders"
+        ]:
+
+            self.database.execute(
+                f"DELETE FROM {table} WHERE car_id=?",
+                (car["id"],)
             )
 
-            self.show_garage()
+        self.database.execute(
+            "DELETE FROM cars WHERE id=?",
+            (car["id"],)
+        )
+
+        self.show_garage()
 
     # ========================================================
     # SERVICE
@@ -1839,123 +1423,51 @@ class CarManager(tk.Tk):
 
     def show_service(self):
 
-        self.current_page = "service"
-
         self.clear_content()
 
-        self.page_title(
-            "Обслуживание",
-            "История ремонтов, ТО и расходов"
+        self.page_title.config(
+            text="Service & repairs"
         )
 
         toolbar = tk.Frame(
             self.content,
-            bg=self.colors["bg"]
+            bg=self.c("bg")
         )
 
         toolbar.pack(
-            fill="x",
-            padx=32,
-            pady=(0, 12)
+            fill="x"
         )
 
-        self.primary_button(
+        self.button(
             toolbar,
-            "＋ Добавить запись",
-            self.add_service_dialog
-        ).pack(side="left")
+            "+ Add service",
+            self.add_service
+        ).pack(side="right")
 
-        table = tk.Frame(
+        rows = self.database.execute(
+            """
+            SELECT service.*, cars.name AS car_name
+            FROM service
+            LEFT JOIN cars ON cars.id = service.car_id
+            ORDER BY service.date DESC
+            """,
+            fetch=True
+        )
+
+        headers = [
+            "Date",
+            "Vehicle",
+            "Work",
+            "Category",
+            "Mileage",
+            "Cost"
+        ]
+
+        self.create_table(
             self.content,
-            bg=self.colors["surface"]
-        )
-
-        table.pack(
-            fill="both",
-            expand=True,
-            padx=32,
-            pady=(0, 25)
-        )
-
-        columns = (
-            "date",
-            "car",
-            "mileage",
-            "category",
-            "description",
-            "cost",
-            "workshop"
-        )
-
-        tree = ttk.Treeview(
-            table,
-            columns=columns,
-            show="headings"
-        )
-
-        headings = {
-            "date": "Дата",
-            "car": "Автомобиль",
-            "mileage": "Пробег",
-            "category": "Категория",
-            "description": "Работа",
-            "cost": "Стоимость",
-            "workshop": "Сервис"
-        }
-
-        for col in columns:
-
-            tree.heading(
-                col,
-                text=headings[col]
-            )
-
-            tree.column(
-                col,
-                width=130
-            )
-
-        tree.pack(
-            fill="both",
-            expand=True
-        )
-
-        for row in self.db.get_service():
-
-            tree.insert(
-                "",
-                "end",
-                iid=str(row["id"]),
-                values=(
-                    row["date"],
-                    f"{row['make']} {row['model']}",
-                    f"{row['mileage']:,}",
-                    row["category"] or "—",
-                    row["description"] or "—",
-                    f"{row['cost']:,.0f} ₽",
-                    row["workshop"] or "—"
-                )
-            )
-
-    # ========================================================
-    # SERVICE DIALOG
-    # ========================================================
-
-    def add_service_dialog(self):
-
-        cars = self.db.get_cars()
-
-        if not cars:
-
-            messagebox.showinfo(
-                "Car Manager",
-                "Сначала добавьте автомобиль."
-            )
-
-            return
-
-        self.record_dialog(
-            mode="service"
+            headers,
+            rows,
+            "service"
         )
 
     # ========================================================
@@ -1964,377 +1476,99 @@ class CarManager(tk.Tk):
 
     def show_fuel(self):
 
-        self.current_page = "fuel"
-
         self.clear_content()
 
-        self.page_title(
-            "Заправки",
-            "История топлива и затрат"
+        self.page_title.config(
+            text="Fuel & consumption"
         )
 
         toolbar = tk.Frame(
             self.content,
-            bg=self.colors["bg"]
+            bg=self.c("bg")
         )
 
         toolbar.pack(
-            fill="x",
-            padx=32,
-            pady=(0, 12)
+            fill="x"
         )
 
-        self.primary_button(
+        self.button(
             toolbar,
-            "＋ Добавить заправку",
-            self.add_fuel_dialog
-        ).pack(side="left")
-
-        table = tk.Frame(
-            self.content,
-            bg=self.colors["surface"]
-        )
-
-        table.pack(
-            fill="both",
-            expand=True,
-            padx=32,
-            pady=(0, 25)
-        )
-
-        columns = (
-            "date",
-            "car",
-            "mileage",
-            "liters",
-            "price",
-            "total",
-            "station"
-        )
-
-        tree = ttk.Treeview(
-            table,
-            columns=columns,
-            show="headings"
-        )
-
-        headings = {
-            "date": "Дата",
-            "car": "Автомобиль",
-            "mileage": "Пробег",
-            "liters": "Литры",
-            "price": "Цена/л",
-            "total": "Сумма",
-            "station": "АЗС"
-        }
-
-        for col in columns:
-
-            tree.heading(
-                col,
-                text=headings[col]
-            )
-
-            tree.column(
-                col,
-                width=130
-            )
-
-        tree.pack(
-            fill="both",
-            expand=True
-        )
-
-        for row in self.db.get_fuel():
-
-            tree.insert(
-                "",
-                "end",
-                values=(
-                    row["date"],
-                    f"{row['make']} {row['model']}",
-                    f"{row['mileage']:,}",
-                    f"{row['liters']:.1f} л",
-                    f"{row['price']:.2f} ₽",
-                    f"{row['total']:,.0f} ₽",
-                    row["station"] or "—"
-                )
-            )
-
-    def add_fuel_dialog(self):
-
-        if not self.db.get_cars():
-
-            messagebox.showinfo(
-                "Car Manager",
-                "Сначала добавьте автомобиль."
-            )
-
-            return
-
-        self.record_dialog(
-            mode="fuel"
-        )
-
-    # ========================================================
-    # RECORD DIALOG
-    # ========================================================
-
-    def record_dialog(self, mode):
-
-        c = self.colors
-
-        dialog = tk.Toplevel(self)
-
-        dialog.title(
-            "Добавить обслуживание"
-            if mode == "service"
-            else "Добавить заправку"
-        )
-
-        dialog.geometry("560x540")
-
-        dialog.configure(
-            bg=c["bg"]
-        )
-
-        dialog.transient(self)
-        dialog.grab_set()
-
-        title = (
-            "Добавить обслуживание"
-            if mode == "service"
-            else "Добавить заправку"
-        )
-
-        tk.Label(
-            dialog,
-            text=title,
-            bg=c["bg"],
-            fg=c["text"],
-            font=("Segoe UI Semibold", 19)
-        ).pack(
-            anchor="w",
-            padx=30,
-            pady=(25, 20)
-        )
-
-        form = tk.Frame(
-            dialog,
-            bg=c["bg"]
-        )
-
-        form.pack(
-            fill="both",
-            expand=True,
-            padx=30
-        )
-
-        cars = self.db.get_cars()
-
-        car_map = {
-            f"{car['make']} {car['model']}":
-                car["id"]
-            for car in cars
-        }
-
-        tk.Label(
-            form,
-            text="Автомобиль",
-            bg=c["bg"],
-            fg=c["muted"]
-        ).pack(anchor="w")
-
-        car_var = tk.StringVar(
-            value=list(car_map.keys())[0]
-        )
-
-        combo = ttk.Combobox(
-            form,
-            textvariable=car_var,
-            values=list(car_map.keys()),
-            state="readonly"
-        )
-
-        combo.pack(
-            fill="x",
-            pady=(4, 12)
-        )
-
-        def field(label, default=""):
-
-            tk.Label(
-                form,
-                text=label,
-                bg=c["bg"],
-                fg=c["muted"]
-            ).pack(anchor="w")
-
-            var = tk.StringVar(
-                value=default
-            )
-
-            entry = tk.Entry(
-                form,
-                textvariable=var,
-                bg=c["input"],
-                fg=c["text"],
-                insertbackground=c["text"],
-                relief="flat"
-            )
-
-            entry.pack(
-                fill="x",
-                ipady=7,
-                pady=(4, 10)
-            )
-
-            return var
-
-        date_var = field(
-            "Дата",
-            date.today().isoformat()
-        )
-
-        mileage_var = field(
-            "Пробег",
-            "0"
-        )
-
-        if mode == "service":
-
-            category_var = field(
-                "Категория",
-                "ТО"
-            )
-
-            description_var = field(
-                "Работа",
-                ""
-            )
-
-            cost_var = field(
-                "Стоимость",
-                "0"
-            )
-
-            workshop_var = field(
-                "Сервис",
-                ""
-            )
-
-        else:
-
-            liters_var = field(
-                "Количество литров",
-                "0"
-            )
-
-            price_var = field(
-                "Цена за литр",
-                "0"
-            )
-
-            station_var = field(
-                "АЗС",
-                ""
-            )
-
-        def save():
-
-            try:
-
-                car_id = car_map[
-                    car_var.get()
-                ]
-
-                mileage = int(
-                    mileage_var.get() or 0
-                )
-
-                if mode == "service":
-
-                    cost = float(
-                        cost_var.get() or 0
-                    )
-
-                    self.db.add_service({
-                        "car_id": car_id,
-                        "date": date_var.get(),
-                        "mileage": mileage,
-                        "category": category_var.get(),
-                        "description": description_var.get(),
-                        "cost": cost,
-                        "workshop": workshop_var.get()
-                    })
-
-                else:
-
-                    liters = float(
-                        liters_var.get() or 0
-                    )
-
-                    price = float(
-                        price_var.get() or 0
-                    )
-
-                    self.db.add_fuel({
-                        "car_id": car_id,
-                        "date": date_var.get(),
-                        "mileage": mileage,
-                        "liters": liters,
-                        "price": price,
-                        "total": liters * price,
-                        "station": station_var.get()
-                    })
-
-            except ValueError:
-
-                messagebox.showwarning(
-                    "Car Manager",
-                    "Проверьте числовые значения.",
-                    parent=dialog
-                )
-
-                return
-
-            dialog.destroy()
-
-            if mode == "service":
-                self.show_service()
-            else:
-                self.show_fuel()
-
-        buttons = tk.Frame(
-            dialog,
-            bg=c["bg"]
-        )
-
-        buttons.pack(
-            fill="x",
-            padx=30,
-            pady=20
-        )
-
-        self.primary_button(
-            buttons,
-            "Сохранить",
-            save
+            "+ Add fuel",
+            self.add_fuel
         ).pack(side="right")
 
-        tk.Button(
-            buttons,
-            text="Отмена",
-            command=dialog.destroy,
-            relief="flat",
-            bd=0,
-            bg=c["surface2"],
-            fg=c["text"],
-            padx=15,
-            pady=8
-        ).pack(
-            side="right",
-            padx=8
+        rows = self.database.execute(
+            """
+            SELECT fuel.*, cars.name AS car_name
+            FROM fuel
+            LEFT JOIN cars ON cars.id = fuel.car_id
+            ORDER BY fuel.date DESC
+            """,
+            fetch=True
+        )
+
+        self.create_table(
+            self.content,
+            [
+                "Date",
+                "Vehicle",
+                "Liters",
+                "Price/L",
+                "Mileage",
+                "Station"
+            ],
+            rows,
+            "fuel"
+        )
+
+    # ========================================================
+    # EXPENSES
+    # ========================================================
+
+    def show_expenses(self):
+
+        self.clear_content()
+
+        self.page_title.config(
+            text="Expenses"
+        )
+
+        toolbar = tk.Frame(
+            self.content,
+            bg=self.c("bg")
+        )
+
+        toolbar.pack(
+            fill="x"
+        )
+
+        self.button(
+            toolbar,
+            "+ Add expense",
+            self.add_expense
+        ).pack(side="right")
+
+        rows = self.database.execute(
+            """
+            SELECT expenses.*, cars.name AS car_name
+            FROM expenses
+            LEFT JOIN cars ON cars.id = expenses.car_id
+            ORDER BY expenses.date DESC
+            """,
+            fetch=True
+        )
+
+        self.create_table(
+            self.content,
+            [
+                "Date",
+                "Vehicle",
+                "Expense",
+                "Category",
+                "Amount"
+            ],
+            rows,
+            "expenses"
         )
 
     # ========================================================
@@ -2343,452 +1577,792 @@ class CarManager(tk.Tk):
 
     def show_reminders(self):
 
-        self.current_page = "reminders"
-
         self.clear_content()
 
-        self.page_title(
-            "Напоминания",
-            "Не забывайте о важных работах"
+        self.page_title.config(
+            text="Reminders"
         )
 
         toolbar = tk.Frame(
             self.content,
-            bg=self.colors["bg"]
+            bg=self.c("bg")
         )
 
         toolbar.pack(
-            fill="x",
-            padx=32,
-            pady=(0, 12)
+            fill="x"
         )
 
-        self.primary_button(
+        self.button(
             toolbar,
-            "＋ Добавить напоминание",
-            self.add_reminder_dialog
-        ).pack(side="left")
+            "+ Add reminder",
+            self.add_reminder
+        ).pack(side="right")
 
-        table = tk.Frame(
-            self.content,
-            bg=self.colors["surface"]
+        rows = self.database.execute(
+            """
+            SELECT reminders.*, cars.name AS car_name
+            FROM reminders
+            LEFT JOIN cars ON cars.id = reminders.car_id
+            ORDER BY reminders.done ASC, reminders.due_date ASC
+            """,
+            fetch=True
         )
 
-        table.pack(
+        self.create_table(
+            self.content,
+            [
+                "Status",
+                "Vehicle",
+                "Task",
+                "Due date",
+                "Due mileage"
+            ],
+            rows,
+            "reminders"
+        )
+
+    # ========================================================
+    # TABLE
+    # ========================================================
+
+    def create_table(
+        self,
+        parent,
+        headers,
+        rows,
+        table
+    ):
+
+        wrapper = tk.Frame(
+            parent,
+            bg=self.c("surface"),
+            highlightthickness=1,
+            highlightbackground=self.c("border")
+        )
+
+        wrapper.pack(
             fill="both",
             expand=True,
-            padx=32,
-            pady=(0, 25)
+            pady=15
         )
 
-        columns = (
-            "car",
-            "title",
-            "date",
-            "mileage",
-            "status"
-        )
+        for index, header in enumerate(headers):
 
-        tree = ttk.Treeview(
-            table,
-            columns=columns,
-            show="headings"
-        )
-
-        headings = {
-            "car": "Автомобиль",
-            "title": "Задача",
-            "date": "Дата",
-            "mileage": "Пробег",
-            "status": "Статус"
-        }
-
-        for col in columns:
-
-            tree.heading(
-                col,
-                text=headings[col]
+            wrapper.grid_columnconfigure(
+                index,
+                weight=1
             )
 
-            tree.column(
-                col,
-                width=160
+            tk.Label(
+                wrapper,
+                text=header.upper(),
+                font=("Segoe UI", 8, "bold"),
+                fg=self.c("muted"),
+                bg=self.c("surface"),
+                anchor="w"
+            ).grid(
+                row=0,
+                column=index,
+                sticky="ew",
+                padx=15,
+                pady=14
             )
 
-        tree.pack(
-            fill="both",
-            expand=True
-        )
+        for row_index, row in enumerate(rows, 1):
 
-        for row in self.db.get_reminders():
+            values = []
 
-            status = "Просрочено"
+            if table == "service":
 
-            if row["due_date"]:
-
-                try:
-
-                    if row["due_date"] >= date.today().isoformat():
-                        status = "Запланировано"
-
-                except Exception:
-                    pass
-
-            tree.insert(
-                "",
-                "end",
-                iid=str(row["id"]),
-                values=(
-                    f"{row['make']} {row['model']}",
+                values = [
+                    row["date"],
+                    row["car_name"],
                     row["title"],
-                    row["due_date"] or "—",
-                    (
-                        f"{row['due_mileage']:,} км"
-                        if row["due_mileage"]
-                        else "—"
-                    ),
-                    status
+                    row["category"],
+                    f'{row["mileage"]:,} km',
+                    self.money(row["cost"])
+                ]
+
+            elif table == "fuel":
+
+                values = [
+                    row["date"],
+                    row["car_name"],
+                    f'{float(row["liters"]):.1f} L',
+                    self.money(row["price"]),
+                    f'{row["mileage"]:,} km',
+                    row["station"] or "—"
+                ]
+
+            elif table == "expenses":
+
+                values = [
+                    row["date"],
+                    row["car_name"],
+                    row["title"],
+                    row["category"],
+                    self.money(row["amount"])
+                ]
+
+            elif table == "reminders":
+
+                values = [
+                    "✓ Done" if row["done"] else "○ Open",
+                    row["car_name"],
+                    row["title"],
+                    row["due_date"],
+                    f'{row["due_mileage"]:,} km'
+                    if row["due_mileage"]
+                    else "—"
+                ]
+
+            for column, value in enumerate(values):
+
+                tk.Label(
+                    wrapper,
+                    text=str(value or "—"),
+                    font=("Segoe UI", 9),
+                    fg=self.c("text"),
+                    bg=self.c("surface"),
+                    anchor="w"
+                ).grid(
+                    row=row_index,
+                    column=column,
+                    sticky="ew",
+                    padx=15,
+                    pady=11
                 )
+
+            if table == "reminders":
+
+                action = lambda r=row: self.toggle_reminder(r)
+
+                symbol = "✓"
+
+            else:
+
+                action = lambda r=row, t=table: self.delete_record(
+                    t,
+                    r["id"]
+                )
+
+                symbol = "×"
+
+            tk.Button(
+                wrapper,
+                text=symbol,
+                command=action,
+                relief="flat",
+                bd=0,
+                bg=self.c("surface2"),
+                fg=self.c("muted"),
+                cursor="hand2"
+            ).grid(
+                row=row_index,
+                column=len(headers),
+                padx=8
             )
 
-    def add_reminder_dialog(self):
+    # ========================================================
+    # SELECT CAR
+    # ========================================================
 
-        cars = self.db.get_cars()
+    def select_car(self):
+
+        cars = self.database.execute(
+            "SELECT * FROM cars ORDER BY name",
+            fetch=True
+        )
 
         if not cars:
 
             messagebox.showinfo(
                 "Car Manager",
-                "Сначала добавьте автомобиль."
+                "Add a vehicle first."
             )
 
-            return
+            return None
 
-        c = self.colors
+        window = tk.Toplevel(self)
 
-        dialog = tk.Toplevel(self)
+        window.title("Select vehicle")
+        window.geometry("400x230")
+        window.configure(bg=self.c("bg"))
 
-        dialog.title(
-            "Новое напоминание"
-        )
-
-        dialog.geometry(
-            "500x420"
-        )
-
-        dialog.configure(
-            bg=c["bg"]
-        )
-
-        dialog.transient(self)
-        dialog.grab_set()
+        window.transient(self)
+        window.grab_set()
 
         tk.Label(
-            dialog,
-            text="Новое напоминание",
-            bg=c["bg"],
-            fg=c["text"],
-            font=("Segoe UI Semibold", 19)
+            window,
+            text="Select vehicle",
+            font=("Segoe UI", 18, "bold"),
+            fg=self.c("text"),
+            bg=self.c("bg")
         ).pack(
             anchor="w",
-            padx=30,
-            pady=(25, 20)
+            padx=25,
+            pady=(25, 15)
         )
 
-        form = tk.Frame(
-            dialog,
-            bg=c["bg"]
-        )
-
-        form.pack(
-            fill="both",
-            expand=True,
-            padx=30
-        )
-
-        car_map = {
-            f"{car['make']} {car['model']}":
-                car["id"]
+        names = {
+            car["name"]: car["id"]
             for car in cars
         }
 
-        tk.Label(
-            form,
-            text="Автомобиль",
-            bg=c["bg"],
-            fg=c["muted"]
-        ).pack(anchor="w")
-
-        car_var = tk.StringVar(
-            value=list(car_map)[0]
+        variable = tk.StringVar(
+            value=cars[0]["name"]
         )
 
         combo = ttk.Combobox(
-            form,
-            textvariable=car_var,
-            values=list(car_map),
+            window,
+            textvariable=variable,
+            values=list(names.keys()),
             state="readonly"
         )
 
         combo.pack(
             fill="x",
-            pady=(4, 12)
+            padx=25,
+            pady=10
         )
 
-        def make_field(
-            label,
-            default=""
-        ):
+        result = [None]
+
+        def confirm():
+
+            result[0] = names[
+                variable.get()
+            ]
+
+            window.destroy()
+
+        self.button(
+            window,
+            "Continue",
+            confirm
+        ).pack(
+            fill="x",
+            padx=25,
+            pady=15
+        )
+
+        self.wait_window(window)
+
+        return result[0]
+
+    # ========================================================
+    # GENERIC FORM
+    # ========================================================
+
+    def open_form(
+        self,
+        title,
+        fields,
+        callback
+    ):
+
+        window = tk.Toplevel(self)
+
+        window.title(title)
+        window.geometry("500x600")
+        window.configure(bg=self.c("bg"))
+
+        window.transient(self)
+        window.grab_set()
+
+        tk.Label(
+            window,
+            text=title,
+            font=("Segoe UI", 19, "bold"),
+            fg=self.c("text"),
+            bg=self.c("bg")
+        ).pack(
+            anchor="w",
+            padx=25,
+            pady=(25, 15)
+        )
+
+        entries = {}
+
+        for label, key in fields:
 
             tk.Label(
-                form,
+                window,
                 text=label,
-                bg=c["bg"],
-                fg=c["muted"]
-            ).pack(anchor="w")
-
-            var = tk.StringVar(
-                value=default
-            )
-
-            tk.Entry(
-                form,
-                textvariable=var,
-                bg=c["input"],
-                fg=c["text"],
-                insertbackground=c["text"],
-                relief="flat"
+                font=("Segoe UI", 8, "bold"),
+                fg=self.c("muted"),
+                bg=self.c("bg")
             ).pack(
-                fill="x",
-                ipady=7,
-                pady=(4, 10)
+                anchor="w",
+                padx=25,
+                pady=(6, 2)
             )
 
-            return var
+            entry = tk.Entry(
+                window,
+                relief="flat",
+                bg=self.c("input"),
+                fg=self.c("text"),
+                insertbackground=self.c("text")
+            )
 
-        title_var = make_field(
-            "Что сделать?",
-            "Замена масла"
+            entry.pack(
+                fill="x",
+                padx=25,
+                ipady=8
+            )
+
+            entries[key] = entry
+
+        self.button(
+            window,
+            "Save",
+            lambda: self.submit_form(
+                window,
+                entries,
+                callback
+            )
+        ).pack(
+            fill="x",
+            padx=25,
+            pady=25
         )
 
-        date_var = make_field(
-            "Дата",
-            date.today().isoformat()
-        )
+    def submit_form(
+        self,
+        window,
+        entries,
+        callback
+    ):
 
-        mileage_var = make_field(
-            "Пробег",
-            "0"
-        )
+        values = {
+            key: entry.get().strip()
+            for key, entry in entries.items()
+        }
 
-        def save():
+        callback(values)
 
-            try:
+        window.destroy()
 
-                mileage = int(
-                    mileage_var.get() or 0
+    # ========================================================
+    # ADD SERVICE
+    # ========================================================
+
+    def add_service(self):
+
+        car_id = self.select_car()
+
+        if not car_id:
+            return
+
+        def save(values):
+
+            self.database.execute(
+                """
+                INSERT INTO service
+                (
+                    car_id,
+                    title,
+                    category,
+                    mileage,
+                    cost,
+                    date,
+                    notes
                 )
-
-            except ValueError:
-
-                messagebox.showwarning(
-                    "Car Manager",
-                    "Пробег должен быть числом.",
-                    parent=dialog
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (
+                    car_id,
+                    values["title"],
+                    values["category"],
+                    int(values["mileage"] or 0),
+                    float(values["cost"] or 0),
+                    values["date"] or str(date.today()),
+                    values["notes"]
                 )
+            )
 
-                return
+            self.show_service()
 
-            self.db.add_reminder({
-                "car_id": car_map[
-                    car_var.get()
-                ],
-                "title": title_var.get(),
-                "due_date": date_var.get(),
-                "due_mileage": mileage
-            })
+        self.open_form(
+            "Add service record",
+            [
+                ("Work performed", "title"),
+                ("Category", "category"),
+                ("Mileage", "mileage"),
+                ("Cost", "cost"),
+                ("Date (YYYY-MM-DD)", "date"),
+                ("Notes", "notes")
+            ],
+            save
+        )
 
-            dialog.destroy()
+    # ========================================================
+    # ADD FUEL
+    # ========================================================
+
+    def add_fuel(self):
+
+        car_id = self.select_car()
+
+        if not car_id:
+            return
+
+        def save(values):
+
+            self.database.execute(
+                """
+                INSERT INTO fuel
+                (
+                    car_id,
+                    liters,
+                    price,
+                    mileage,
+                    date,
+                    station
+                )
+                VALUES (?,?,?,?,?,?)
+                """,
+                (
+                    car_id,
+                    float(values["liters"] or 0),
+                    float(values["price"] or 0),
+                    int(values["mileage"] or 0),
+                    values["date"] or str(date.today()),
+                    values["station"]
+                )
+            )
+
+            self.show_fuel()
+
+        self.open_form(
+            "Add fuel record",
+            [
+                ("Liters", "liters"),
+                ("Price per liter", "price"),
+                ("Mileage", "mileage"),
+                ("Date (YYYY-MM-DD)", "date"),
+                ("Station", "station")
+            ],
+            save
+        )
+
+    # ========================================================
+    # ADD EXPENSE
+    # ========================================================
+
+    def add_expense(self):
+
+        car_id = self.select_car()
+
+        if not car_id:
+            return
+
+        def save(values):
+
+            self.database.execute(
+                """
+                INSERT INTO expenses
+                (
+                    car_id,
+                    title,
+                    category,
+                    amount,
+                    date,
+                    notes
+                )
+                VALUES (?,?,?,?,?,?)
+                """,
+                (
+                    car_id,
+                    values["title"],
+                    values["category"],
+                    float(values["amount"] or 0),
+                    values["date"] or str(date.today()),
+                    values["notes"]
+                )
+            )
+
+            self.show_expenses()
+
+        self.open_form(
+            "Add expense",
+            [
+                ("Expense", "title"),
+                ("Category", "category"),
+                ("Amount", "amount"),
+                ("Date (YYYY-MM-DD)", "date"),
+                ("Notes", "notes")
+            ],
+            save
+        )
+
+    # ========================================================
+    # ADD REMINDER
+    # ========================================================
+
+    def add_reminder(self):
+
+        car_id = self.select_car()
+
+        if not car_id:
+            return
+
+        def save(values):
+
+            self.database.execute(
+                """
+                INSERT INTO reminders
+                (
+                    car_id,
+                    title,
+                    due_date,
+                    due_mileage,
+                    notes
+                )
+                VALUES (?,?,?,?,?)
+                """,
+                (
+                    car_id,
+                    values["title"],
+                    values["date"],
+                    int(values["mileage"] or 0),
+                    values["notes"]
+                )
+            )
 
             self.show_reminders()
 
-        buttons = tk.Frame(
-            dialog,
-            bg=c["bg"]
-        )
-
-        buttons.pack(
-            fill="x",
-            padx=30,
-            pady=20
-        )
-
-        self.primary_button(
-            buttons,
-            "Создать",
+        self.open_form(
+            "Add reminder",
+            [
+                ("Task", "title"),
+                ("Due date (YYYY-MM-DD)", "date"),
+                ("Due mileage", "mileage"),
+                ("Notes", "notes")
+            ],
             save
-        ).pack(side="right")
-
-        tk.Button(
-            buttons,
-            text="Отмена",
-            command=dialog.destroy,
-            relief="flat",
-            bd=0,
-            bg=c["surface2"],
-            fg=c["text"],
-            padx=15,
-            pady=8
-        ).pack(
-            side="right",
-            padx=8
         )
 
     # ========================================================
-    # CSV EXPORT
+    # DELETE RECORD
     # ========================================================
 
-    def export_csv(self):
+    def delete_record(
+        self,
+        table,
+        record_id
+    ):
 
-        filename = filedialog.asksaveasfilename(
-            title="Экспорт автомобилей",
-            defaultextension=".csv",
-            filetypes=[
-                (
-                    "CSV files",
-                    "*.csv"
-                )
-            ]
-        )
-
-        if not filename:
+        if not messagebox.askyesno(
+            "Confirm",
+            "Delete this record?"
+        ):
             return
 
-        cars = self.db.get_cars()
+        self.database.execute(
+            f"DELETE FROM {table} WHERE id=?",
+            (record_id,)
+        )
 
-        try:
+        {
+            "service": self.show_service,
+            "fuel": self.show_fuel,
+            "expenses": self.show_expenses
+        }[table]()
 
-            with open(
-                filename,
+    # ========================================================
+    # REMINDER
+    # ========================================================
+
+    def toggle_reminder(
+        self,
+        reminder
+    ):
+
+        self.database.execute(
+            """
+            UPDATE reminders
+            SET done=?
+            WHERE id=?
+            """,
+            (
+                0 if reminder["done"] else 1,
+                reminder["id"]
+            )
+        )
+
+        self.show_reminders()
+
+    # ========================================================
+    # EXPORT
+    # ========================================================
+
+    def export_all(self):
+
+        folder = filedialog.askdirectory(
+            title="Choose export folder"
+        )
+
+        if not folder:
+            return
+
+        tables = [
+            "cars",
+            "service",
+            "fuel",
+            "expenses",
+            "reminders"
+        ]
+
+        for table in tables:
+
+            rows = self.database.execute(
+                f"SELECT * FROM {table}",
+                fetch=True
+            )
+
+            if not rows:
+                continue
+
+            path = Path(folder) / f"{table}.csv"
+
+            with path.open(
                 "w",
                 newline="",
                 encoding="utf-8-sig"
             ) as file:
 
-                writer = csv.writer(
-                    file,
-                    delimiter=";"
+                writer = csv.writer(file)
+
+                writer.writerow(
+                    rows[0].keys()
                 )
 
-                writer.writerow([
-                    "Марка",
-                    "Модель",
-                    "Год",
-                    "Пробег",
-                    "Двигатель",
-                    "КПП",
-                    "Привод",
-                    "Цвет",
-                    "Госномер",
-                    "VIN",
-                    "Заметки"
-                ])
+                for row in rows:
 
-                for car in cars:
+                    writer.writerow(
+                        list(row)
+                    )
 
-                    writer.writerow([
-                        car["make"],
-                        car["model"],
-                        car["year"],
-                        car["mileage"],
-                        car["engine"],
-                        car["transmission"],
-                        car["drive"],
-                        car["color"],
-                        car["plate"],
-                        car["vin"],
-                        car["notes"]
-                    ])
-
-            messagebox.showinfo(
-                "Car Manager",
-                "Данные успешно экспортированы."
-            )
-
-        except Exception as error:
-
-            messagebox.showerror(
-                "Ошибка",
-                str(error)
-            )
+        messagebox.showinfo(
+            "Export complete",
+            f"All data exported to:\n{folder}"
+        )
 
     # ========================================================
     # THEME
     # ========================================================
 
-    def set_theme(self, theme):
+    def toggle_theme(self):
 
-        if theme not in THEMES:
-            return
+        self.set_theme(
+            "light"
+            if self.theme_name == "dark"
+            else "dark"
+        )
+
+    def set_theme(
+        self,
+        theme
+    ):
 
         self.theme_name = theme
         self.colors = THEMES[theme]
 
+        for widget in self.winfo_children():
+            widget.destroy()
+
         self.configure(
-            bg=self.colors["bg"]
+            bg=self.c("bg")
         )
 
-        self.setup_style()
+        self.build_menu()
+        self.build_interface()
 
-        self.create_menu()
-        self.create_sidebar()
-
-        if self.current_page == "dashboard":
-            self.refresh_dashboard()
-
-        elif self.current_page == "garage":
-            self.show_garage()
-
-        elif self.current_page == "service":
-            self.show_service()
-
-        elif self.current_page == "fuel":
-            self.show_fuel()
-
-        elif self.current_page == "reminders":
-            self.show_reminders()
+        self.show_dashboard()
 
     # ========================================================
     # ABOUT
     # ========================================================
 
-    def about(self):
+    def show_about(self):
 
-        messagebox.showinfo(
-            "Car Manager",
-            "Car Manager\n\n"
-            f"Версия {VERSION}\n\n"
-            "Современный менеджер автомобиля "
-            "для обслуживания, расходов, топлива "
-            "и напоминаний.\n\n"
-            "Автор:\n"
-            "Artem Sukhinin\n\n"
-            "Telegram:\n"
-            "https://t.me/artem_sukhinin"
+        window = tk.Toplevel(self)
+
+        window.title("About Car Manager")
+        window.geometry("470x340")
+
+        window.configure(
+            bg=self.c("bg")
         )
 
-    # ========================================================
-    # CLOSE
-    # ========================================================
+        window.transient(self)
 
-    def close(self):
+        tk.Label(
+            window,
+            text="CAR MANAGER",
+            font=("Segoe UI", 24, "bold"),
+            fg=self.c("text"),
+            bg=self.c("bg")
+        ).pack(
+            pady=(40, 5)
+        )
 
-        try:
-            self.db.close()
-        except Exception:
-            pass
+        tk.Label(
+            window,
+            text=f"Version {VERSION}",
+            font=("Segoe UI", 10, "bold"),
+            fg=self.c("accent"),
+            bg=self.c("bg")
+        ).pack()
 
-        self.destroy()
+        tk.Label(
+            window,
+            text="Modern vehicle management for Windows",
+            font=("Segoe UI", 10),
+            fg=self.c("muted"),
+            bg=self.c("bg")
+        ).pack(
+            pady=18
+        )
+
+        tk.Label(
+            window,
+            text=f"Developed by {AUTHOR}",
+            font=("Segoe UI", 11, "bold"),
+            fg=self.c("text"),
+            bg=self.c("bg")
+        ).pack()
+
+        link = tk.Label(
+            window,
+            text=TELEGRAM_URL,
+            font=("Segoe UI", 10, "underline"),
+            fg=self.c("accent"),
+            bg=self.c("bg"),
+            cursor="hand2"
+        )
+
+        link.pack(
+            pady=7
+        )
+
+        link.bind(
+            "<Button-1>",
+            lambda event: webbrowser.open(
+                TELEGRAM_URL
+            )
+        )
+
+        self.button(
+            window,
+            "Close",
+            window.destroy,
+            False
+        ).pack(
+            pady=25
+        )
 
 
 # ============================================================
