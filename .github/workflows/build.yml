@@ -15,6 +15,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
+
       - name: Checkout repository
         uses: actions/checkout@v7
 
@@ -48,6 +49,7 @@ jobs:
             exit 1
           }
 
+          Write-Host "Build successful:"
           Get-Item "dist\CarManager.exe"
 
       - name: Upload EXE
