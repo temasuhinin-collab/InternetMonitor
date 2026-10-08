@@ -1,24 +1,26 @@
 import csv
+import shutil
 import sqlite3
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from pathlib import Path
-from datetime import date
+from datetime import date, datetime
 import webbrowser
 
 
 # ============================================================
-# CAR MANAGER 3.0
+# CAR MANAGER 3.1
 # Developed by Artem Sukhinin
 # Telegram: https://t.me/artem_sukhinin
 # ============================================================
 
 APP_NAME = "Car Manager"
-VERSION = "3.0.0"
+VERSION = "3.1.0"
 AUTHOR = "Artem Sukhinin"
 TELEGRAM_URL = "https://t.me/artem_sukhinin"
 
 DB_FILE = Path.home() / "CarManager.db"
+BACKUP_DIR = Path.home() / "CarManagerBackups"
 
 
 # ============================================================
@@ -65,17 +67,43 @@ THEMES = {
 
 class Database:
 
+    SCHEMA_VERSION = 4
+
     def __init__(self):
-        self.connection = sqlite3.connect(DB_FILE)
+
+        self.connection = sqlite3.connect(
+            DB_FILE,
+            timeout=10
+        )
+
         self.connection.row_factory = sqlite3.Row
+
+        self.connection.execute(
+            "PRAGMA foreign_keys = ON"
+        )
+
+        self.connection.execute(
+            "PRAGMA journal_mode = WAL"
+        )
+
         self.initialize()
+
+    # --------------------------------------------------------
+    # INITIALIZE
+    # --------------------------------------------------------
 
     def initialize(self):
 
-        cursor = self.connection.cursor()
+        self.create_base_tables()
+        self.migrate_database()
 
-        # Base tables. IF NOT EXISTS means existing data is safe.
-        cursor.executescript("""
+    # --------------------------------------------------------
+    # BASE TABLES
+    # --------------------------------------------------------
+
+    def create_base_tables(self):
+
+        self.connection.executescript("""
         CREATE TABLE IF NOT EXISTS cars (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -137,16 +165,57 @@ class Database:
 
         CREATE TABLE IF NOT EXISTS database_info (
             id INTEGER PRIMARY KEY CHECK(id = 1),
-            version INTEGER NOT NULL
+            version INTEGER NOT NULL DEFAULT 1
         );
         """)
 
         self.connection.commit()
 
-        # ----------------------------------------------------
-        # MIGRATION
-        # ----------------------------------------------------
-        self.migrate()
+    # --------------------------------------------------------
+    # BACKUP
+    # --------------------------------------------------------
+
+    def create_backup(self):
+
+        if not DB_FILE.exists():
+            return None
+
+        try:
+
+            BACKUP_DIR.mkdir(
+                parents=True,
+                exist_ok=True
+            )
+
+            timestamp = datetime.now().strftime(
+                "%Y%m%d_%H%M%S"
+            )
+
+            backup = (
+                BACKUP_DIR /
+                f"CarManager_backup_{timestamp}.db"
+            )
+
+            self.connection.commit()
+
+            shutil.copy2(
+                DB_FILE,
+                backup
+            )
+
+            return backup
+
+        except Exception as error:
+
+            print(
+                f"[DATABASE] Backup error: {error}"
+            )
+
+            return None
+
+    # --------------------------------------------------------
+    # COLUMNS
+    # --------------------------------------------------------
 
     def get_columns(self, table):
 
@@ -159,7 +228,11 @@ class Database:
             for row in rows
         }
 
-    def add_column_if_missing(
+    # --------------------------------------------------------
+    # ADD COLUMN
+    # --------------------------------------------------------
+
+    def ensure_column(
         self,
         table,
         column,
@@ -168,98 +241,282 @@ class Database:
 
         columns = self.get_columns(table)
 
-        if column not in columns:
+        if column in columns:
+            return False
 
-            try:
-                self.connection.execute(
-                    f"""
-                    ALTER TABLE {table}
-                    ADD COLUMN {column} {definition}
-                    """
-                )
-            except sqlite3.OperationalError:
-                pass
-
-    def migrate(self):
-
-        # Cars
-        self.add_column_if_missing(
-            "cars",
-            "notes",
-            "TEXT"
-        )
-
-        self.add_column_if_missing(
-            "cars",
-            "created_at",
-            "TEXT"
-        )
-
-        # Service
-        self.add_column_if_missing(
-            "service",
-            "notes",
-            "TEXT"
-        )
-
-        # Fuel
-        self.add_column_if_missing(
-            "fuel",
-            "station",
-            "TEXT"
-        )
-
-        # Expenses
-        self.add_column_if_missing(
-            "expenses",
-            "notes",
-            "TEXT"
-        )
-
-        # Reminders
-        self.add_column_if_missing(
-            "reminders",
-            "done",
-            "INTEGER DEFAULT 0"
-        )
-
-        self.add_column_if_missing(
-            "reminders",
-            "notes",
-            "TEXT"
-        )
-
-        self.add_column_if_missing(
-            "reminders",
-            "due_mileage",
-            "INTEGER DEFAULT 0"
-        )
-
-        # Database version
-        row = self.connection.execute(
-            "SELECT version FROM database_info WHERE id=1"
-        ).fetchone()
-
-        if row is None:
+        try:
 
             self.connection.execute(
-                """
-                INSERT INTO database_info(id, version)
-                VALUES(1, 3)
+                f"""
+                ALTER TABLE {table}
+                ADD COLUMN {column} {definition}
                 """
             )
 
-        else:
+            return True
 
-            self.connection.execute(
+        except sqlite3.OperationalError as error:
+
+            print(
+                f"[DATABASE] "
+                f"Cannot add {table}.{column}: {error}"
+            )
+
+            return False
+
+    # --------------------------------------------------------
+    # MIGRATION
+    # --------------------------------------------------------
+
+    def migrate_database(self):
+
+        try:
+
+            # Backup BEFORE modifications.
+            current_version_row = self.connection.execute(
                 """
-                UPDATE database_info
-                SET version=3
+                SELECT version
+                FROM database_info
                 WHERE id=1
                 """
+            ).fetchone()
+
+            current_version = (
+                current_version_row["version"]
+                if current_version_row
+                else 0
             )
 
-        self.connection.commit()
+            # Only create a backup for existing databases.
+            if DB_FILE.exists() and current_version < self.SCHEMA_VERSION:
+                backup = self.create_backup()
+
+                if backup:
+                    print(
+                        f"[DATABASE] Backup created: {backup}"
+                    )
+
+            # =================================================
+            # CARS
+            # =================================================
+
+            cars = {
+                "name": "TEXT",
+                "make": "TEXT",
+                "model": "TEXT",
+                "year": "INTEGER",
+                "mileage": "INTEGER DEFAULT 0",
+                "vin": "TEXT",
+                "plate": "TEXT",
+                "color": "TEXT",
+                "engine": "TEXT",
+                "transmission": "TEXT",
+                "drive": "TEXT",
+                "fuel": "TEXT",
+                "notes": "TEXT",
+                "created_at": "TEXT"
+            }
+
+            for column, definition in cars.items():
+
+                self.ensure_column(
+                    "cars",
+                    column,
+                    definition
+                )
+
+            # =================================================
+            # SERVICE
+            # =================================================
+
+            service = {
+                "car_id": "INTEGER",
+                "title": "TEXT",
+                "category": "TEXT",
+                "mileage": "INTEGER DEFAULT 0",
+                "cost": "REAL DEFAULT 0",
+                "date": "TEXT",
+                "notes": "TEXT"
+            }
+
+            for column, definition in service.items():
+
+                self.ensure_column(
+                    "service",
+                    column,
+                    definition
+                )
+
+            # =================================================
+            # FUEL
+            # =================================================
+
+            fuel = {
+                "car_id": "INTEGER",
+                "liters": "REAL DEFAULT 0",
+                "price": "REAL DEFAULT 0",
+                "mileage": "INTEGER DEFAULT 0",
+                "date": "TEXT",
+                "station": "TEXT"
+            }
+
+            for column, definition in fuel.items():
+
+                self.ensure_column(
+                    "fuel",
+                    column,
+                    definition
+                )
+
+            # =================================================
+            # EXPENSES
+            # =================================================
+
+            expenses = {
+                "car_id": "INTEGER",
+                "title": "TEXT",
+                "category": "TEXT",
+                "amount": "REAL DEFAULT 0",
+                "date": "TEXT",
+                "notes": "TEXT"
+            }
+
+            for column, definition in expenses.items():
+
+                self.ensure_column(
+                    "expenses",
+                    column,
+                    definition
+                )
+
+            # =================================================
+            # REMINDERS
+            # =================================================
+
+            reminders = {
+                "car_id": "INTEGER",
+                "title": "TEXT",
+                "due_date": "TEXT",
+                "due_mileage": "INTEGER DEFAULT 0",
+                "done": "INTEGER DEFAULT 0",
+                "notes": "TEXT"
+            }
+
+            for column, definition in reminders.items():
+
+                self.ensure_column(
+                    "reminders",
+                    column,
+                    definition
+                )
+
+            # =================================================
+            # NORMALIZE NULL VALUES
+            # =================================================
+
+            self.connection.execute(
+                """
+                UPDATE cars
+                SET mileage=0
+                WHERE mileage IS NULL
+                """
+            )
+
+            self.connection.execute(
+                """
+                UPDATE service
+                SET mileage=0
+                WHERE mileage IS NULL
+                """
+            )
+
+            self.connection.execute(
+                """
+                UPDATE service
+                SET cost=0
+                WHERE cost IS NULL
+                """
+            )
+
+            self.connection.execute(
+                """
+                UPDATE fuel
+                SET liters=0
+                WHERE liters IS NULL
+                """
+            )
+
+            self.connection.execute(
+                """
+                UPDATE fuel
+                SET price=0
+                WHERE price IS NULL
+                """
+            )
+
+            self.connection.execute(
+                """
+                UPDATE fuel
+                SET mileage=0
+                WHERE mileage IS NULL
+                """
+            )
+
+            self.connection.execute(
+                """
+                UPDATE expenses
+                SET amount=0
+                WHERE amount IS NULL
+                """
+            )
+
+            self.connection.execute(
+                """
+                UPDATE reminders
+                SET done=0
+                WHERE done IS NULL
+                """
+            )
+
+            self.connection.execute(
+                """
+                UPDATE reminders
+                SET due_mileage=0
+                WHERE due_mileage IS NULL
+                """
+            )
+
+            # =================================================
+            # DATABASE VERSION
+            # =================================================
+
+            self.connection.execute(
+                """
+                INSERT INTO database_info
+                (id, version)
+                VALUES (1, ?)
+                ON CONFLICT(id)
+                DO UPDATE SET version=excluded.version
+                """,
+                (self.SCHEMA_VERSION,)
+            )
+
+            self.connection.commit()
+
+            print(
+                f"[DATABASE] Schema version: "
+                f"{self.SCHEMA_VERSION}"
+            )
+
+        except Exception:
+
+            self.connection.rollback()
+
+            raise
+
+    # --------------------------------------------------------
+    # EXECUTE
+    # --------------------------------------------------------
 
     def execute(
         self,
@@ -280,6 +537,10 @@ class Database:
 
         return cursor
 
+    # --------------------------------------------------------
+    # ONE
+    # --------------------------------------------------------
+
     def one(
         self,
         query,
@@ -290,6 +551,10 @@ class Database:
             query,
             params
         ).fetchone()
+
+    # --------------------------------------------------------
+    # SCALAR
+    # --------------------------------------------------------
 
     def scalar(
         self,
@@ -302,16 +567,33 @@ class Database:
             params
         )
 
-        if not row:
+        if row is None:
             return 0
 
-        value = list(row)[0]
+        try:
 
-        return value if value is not None else 0
+            value = row[0]
+
+            return 0 if value is None else value
+
+        except Exception:
+
+            return 0
+
+    # --------------------------------------------------------
+    # CLOSE
+    # --------------------------------------------------------
+
+    def close(self):
+
+        try:
+            self.connection.close()
+        except Exception:
+            pass
 
 
 # ============================================================
-# MAIN APPLICATION
+# APPLICATION
 # ============================================================
 
 class CarManager(tk.Tk):
@@ -323,7 +605,24 @@ class CarManager(tk.Tk):
         self.theme_name = "dark"
         self.colors = THEMES[self.theme_name]
 
-        self.database = Database()
+        try:
+
+            self.database = Database()
+
+        except Exception as error:
+
+            messagebox.showerror(
+                "Car Manager — Database error",
+                (
+                    "Не удалось открыть базу данных.\n\n"
+                    f"{error}\n\n"
+                    f"Файл:\n{DB_FILE}"
+                )
+            )
+
+            self.destroy()
+
+            raise
 
         self.title(
             f"{APP_NAME} {VERSION}"
@@ -342,6 +641,11 @@ class CarManager(tk.Tk):
             bg=self.c("bg")
         )
 
+        self.protocol(
+            "WM_DELETE_WINDOW",
+            self.on_close
+        )
+
         self.style = ttk.Style(self)
 
         try:
@@ -349,17 +653,37 @@ class CarManager(tk.Tk):
         except Exception:
             pass
 
+        self.configure_styles()
+
         self.build_menu()
         self.build_interface()
 
         self.show_dashboard()
 
     # ========================================================
-    # HELPERS
+    # COLORS
     # ========================================================
 
     def c(self, key):
         return self.colors[key]
+
+    # ========================================================
+    # STYLES
+    # ========================================================
+
+    def configure_styles(self):
+
+        self.style.configure(
+            "TCombobox",
+            fieldbackground=self.c("input"),
+            background=self.c("input"),
+            foreground=self.c("text"),
+            borderwidth=0
+        )
+
+    # ========================================================
+    # FORMAT
+    # ========================================================
 
     def money(self, value):
 
@@ -374,7 +698,27 @@ class CarManager(tk.Tk):
 
             return "₽ 0"
 
+    def number(self, value):
+
+        try:
+
+            return f"{int(float(value)):,}".replace(
+                ",",
+                " "
+            )
+
+        except Exception:
+
+            return "0"
+
+    # ========================================================
+    # CLEAR
+    # ========================================================
+
     def clear_content(self):
+
+        if not hasattr(self, "content"):
+            return
 
         for widget in self.content.winfo_children():
             widget.destroy()
@@ -385,7 +729,9 @@ class CarManager(tk.Tk):
 
     def build_menu(self):
 
-        menu = tk.Menu(self)
+        menu = tk.Menu(
+            self
+        )
 
         file_menu = tk.Menu(
             menu,
@@ -397,11 +743,16 @@ class CarManager(tk.Tk):
             command=self.export_all
         )
 
+        file_menu.add_command(
+            label="Open database folder",
+            command=self.open_database_folder
+        )
+
         file_menu.add_separator()
 
         file_menu.add_command(
             label="Exit",
-            command=self.destroy
+            command=self.on_close
         )
 
         menu.add_cascade(
@@ -449,7 +800,7 @@ class CarManager(tk.Tk):
         )
 
     # ========================================================
-    # INTERFACE
+    # MAIN INTERFACE
     # ========================================================
 
     def build_interface(self):
@@ -591,7 +942,7 @@ class CarManager(tk.Tk):
 
         tk.Label(
             info,
-            text="VERSION 3.0",
+            text="VERSION 3.1",
             font=("Segoe UI", 8, "bold"),
             fg=self.c("accent"),
             bg=self.c("surface")
@@ -668,7 +1019,10 @@ class CarManager(tk.Tk):
             font=("Segoe UI", 10),
             padx=22,
             pady=11
-        ).pack(fill="x", pady=(0, 15))
+        ).pack(
+            fill="x",
+            pady=(0, 15)
+        )
 
     # ========================================================
     # BUTTON
@@ -719,27 +1073,61 @@ class CarManager(tk.Tk):
         )
 
         cars = self.database.execute(
-            "SELECT * FROM cars ORDER BY id DESC",
+            """
+            SELECT
+                id,
+                name,
+                make,
+                model,
+                year,
+                mileage,
+                vin,
+                plate,
+                color,
+                engine,
+                transmission,
+                drive,
+                fuel,
+                notes,
+                created_at
+            FROM cars
+            ORDER BY id DESC
+            """,
             fetch=True
         )
 
         total_service = self.database.scalar(
-            "SELECT COALESCE(SUM(cost),0) FROM service"
+            """
+            SELECT COALESCE(SUM(cost),0)
+            FROM service
+            """
         )
 
         total_fuel = self.database.scalar(
-            "SELECT COALESCE(SUM(liters * price),0) FROM fuel"
+            """
+            SELECT COALESCE(SUM(liters * price),0)
+            FROM fuel
+            """
         )
 
         total_expenses = self.database.scalar(
-            "SELECT COALESCE(SUM(amount),0) FROM expenses"
+            """
+            SELECT COALESCE(SUM(amount),0)
+            FROM expenses
+            """
         )
 
         reminders = self.database.scalar(
-            "SELECT COUNT(*) FROM reminders WHERE done=0"
+            """
+            SELECT COUNT(*)
+            FROM reminders
+            WHERE done=0
+            """
         )
 
+        # ----------------------------------------------------
         # HERO
+        # ----------------------------------------------------
 
         hero = tk.Frame(
             self.content,
@@ -795,7 +1183,10 @@ class CarManager(tk.Tk):
             "＋ Service",
             self.add_service,
             False
-        ).pack(side="left", padx=8)
+        ).pack(
+            side="left",
+            padx=8
+        )
 
         self.button(
             actions,
@@ -804,7 +1195,9 @@ class CarManager(tk.Tk):
             False
         ).pack(side="left")
 
-        # STAT CARDS
+        # ----------------------------------------------------
+        # STATS
+        # ----------------------------------------------------
 
         cards = tk.Frame(
             self.content,
@@ -866,7 +1259,9 @@ class CarManager(tk.Tk):
                 padx=5
             )
 
+        # ----------------------------------------------------
         # LOWER
+        # ----------------------------------------------------
 
         lower = tk.Frame(
             self.content,
@@ -944,18 +1339,20 @@ class CarManager(tk.Tk):
 
                 tk.Label(
                     details,
-                    text=car["name"],
+                    text=car["name"] or "Vehicle",
                     font=("Segoe UI", 11, "bold"),
                     fg=self.c("text"),
                     bg=self.c("surface")
                 ).pack(anchor="w")
 
+                make = car["make"] or ""
+                model = car["model"] or ""
+
                 tk.Label(
                     details,
                     text=(
-                        f'{car["make"] or ""} '
-                        f'{car["model"] or ""}  •  '
-                        f'{car["mileage"]:,} km'
+                        f"{make} {model}  •  "
+                        f"{self.number(car['mileage'])} km"
                     ),
                     font=("Segoe UI", 9),
                     fg=self.c("muted"),
@@ -976,12 +1373,27 @@ class CarManager(tk.Tk):
 
         upcoming = self.database.execute(
             """
-            SELECT reminders.*, cars.name AS car_name
+            SELECT
+                reminders.id,
+                reminders.car_id,
+                reminders.title,
+                reminders.due_date,
+                reminders.due_mileage,
+                reminders.done,
+                reminders.notes,
+                cars.name AS car_name
             FROM reminders
             LEFT JOIN cars
-            ON cars.id = reminders.car_id
+                ON cars.id = reminders.car_id
             WHERE reminders.done=0
-            ORDER BY reminders.due_date ASC
+            ORDER BY
+                CASE
+                    WHEN reminders.due_date IS NULL
+                    OR reminders.due_date=''
+                    THEN 1
+                    ELSE 0
+                END,
+                reminders.due_date ASC
             LIMIT 5
             """,
             fetch=True
@@ -1000,21 +1412,29 @@ class CarManager(tk.Tk):
                 pady=30
             )
 
-        for reminder in upcoming:
+        else:
 
-            tk.Label(
-                right,
-                text=(
-                    f'• {reminder["title"]} '
-                    f'— {reminder["car_name"] or "Vehicle"}'
-                ),
-                font=("Segoe UI", 10),
-                fg=self.c("text"),
-                bg=self.c("surface")
-            ).pack(
-                anchor="w",
-                pady=6
-            )
+            for reminder in upcoming:
+
+                car_name = (
+                    reminder["car_name"]
+                    or
+                    "Vehicle"
+                )
+
+                tk.Label(
+                    right,
+                    text=(
+                        f"• {reminder['title'] or 'Reminder'} "
+                        f"— {car_name}"
+                    ),
+                    font=("Segoe UI", 10),
+                    fg=self.c("text"),
+                    bg=self.c("surface")
+                ).pack(
+                    anchor="w",
+                    pady=6
+                )
 
     # ========================================================
     # STAT CARD
@@ -1136,29 +1556,47 @@ class CarManager(tk.Tk):
             self.add_car
         ).pack(side="right")
 
-        query = self.search_entry.get().strip().lower()
+        query = (
+            self.search_entry.get()
+            .strip()
+            .lower()
+        )
 
         cars = self.database.execute(
-            "SELECT * FROM cars ORDER BY id DESC",
+            """
+            SELECT *
+            FROM cars
+            ORDER BY id DESC
+            """,
             fetch=True
         )
 
         if query and query != "search garage...":
 
-            cars = [
-                car
-                for car in cars
-                if query in " ".join(
-                    str(car[key] or "")
+            filtered = []
+
+            for car in cars:
+
+                text = " ".join(
+                    str(
+                        car[key]
+                        if key in car.keys()
+                        else ""
+                    )
                     for key in (
                         "name",
                         "make",
                         "model",
                         "vin",
-                        "plate"
+                        "plate",
+                        "engine"
                     )
                 ).lower()
-            ]
+
+                if query in text:
+                    filtered.append(car)
+
+            cars = filtered
 
         if not cars:
 
@@ -1168,7 +1606,9 @@ class CarManager(tk.Tk):
                 font=("Segoe UI", 16, "bold"),
                 fg=self.c("muted"),
                 bg=self.c("bg")
-            ).pack(pady=80)
+            ).pack(
+                pady=80
+            )
 
             return
 
@@ -1182,12 +1622,15 @@ class CarManager(tk.Tk):
             expand=True
         )
 
-        for column in range(2):
+        grid.grid_columnconfigure(
+            0,
+            weight=1
+        )
 
-            grid.grid_columnconfigure(
-                column,
-                weight=1
-            )
+        grid.grid_columnconfigure(
+            1,
+            weight=1
+        )
 
         for index, car in enumerate(cars):
 
@@ -1239,7 +1682,7 @@ class CarManager(tk.Tk):
 
         tk.Label(
             header,
-            text=car["name"],
+            text=car["name"] or "Vehicle",
             font=("Segoe UI", 15, "bold"),
             fg=self.c("text"),
             bg=self.c("surface")
@@ -1277,7 +1720,7 @@ class CarManager(tk.Tk):
         tk.Label(
             frame,
             text=(
-                f'ODO  {car["mileage"]:,} km'
+                f'ODO  {self.number(car["mileage"])} km'
                 f'     •     '
                 f'{car["engine"] or "Engine —"}'
                 f'     •     '
@@ -1355,7 +1798,7 @@ class CarManager(tk.Tk):
         )
 
     # ========================================================
-    # CAR FORM
+    # ADD / EDIT CAR
     # ========================================================
 
     def add_car(
@@ -1463,12 +1906,20 @@ class CarManager(tk.Tk):
 
             entries[key] = entry
 
-            if car and car[key] is not None:
+            if car:
 
-                entry.insert(
-                    0,
-                    str(car[key])
-                )
+                try:
+
+                    value = car[key]
+
+                    if value is not None:
+                        entry.insert(
+                            0,
+                            str(value)
+                        )
+
+                except (KeyError, IndexError):
+                    pass
 
         def save():
 
@@ -1594,7 +2045,10 @@ class CarManager(tk.Tk):
 
         if not messagebox.askyesno(
             "Delete vehicle",
-            f'Delete "{car["name"]}" and all related records?'
+            (
+                f'Delete "{car["name"]}" '
+                "and all related records?"
+            )
         ):
             return
 
@@ -1646,10 +2100,19 @@ class CarManager(tk.Tk):
 
         rows = self.database.execute(
             """
-            SELECT service.*, cars.name AS car_name
+            SELECT
+                service.id,
+                service.car_id,
+                service.title,
+                service.category,
+                service.mileage,
+                service.cost,
+                service.date,
+                service.notes,
+                cars.name AS car_name
             FROM service
             LEFT JOIN cars
-            ON cars.id=service.car_id
+                ON cars.id=service.car_id
             ORDER BY service.date DESC
             """,
             fetch=True
@@ -1698,10 +2161,18 @@ class CarManager(tk.Tk):
 
         rows = self.database.execute(
             """
-            SELECT fuel.*, cars.name AS car_name
+            SELECT
+                fuel.id,
+                fuel.car_id,
+                fuel.liters,
+                fuel.price,
+                fuel.mileage,
+                fuel.date,
+                fuel.station,
+                cars.name AS car_name
             FROM fuel
             LEFT JOIN cars
-            ON cars.id=fuel.car_id
+                ON cars.id=fuel.car_id
             ORDER BY fuel.date DESC
             """,
             fetch=True
@@ -1750,10 +2221,18 @@ class CarManager(tk.Tk):
 
         rows = self.database.execute(
             """
-            SELECT expenses.*, cars.name AS car_name
+            SELECT
+                expenses.id,
+                expenses.car_id,
+                expenses.title,
+                expenses.category,
+                expenses.amount,
+                expenses.date,
+                expenses.notes,
+                cars.name AS car_name
             FROM expenses
             LEFT JOIN cars
-            ON cars.id=expenses.car_id
+                ON cars.id=expenses.car_id
             ORDER BY expenses.date DESC
             """,
             fetch=True
@@ -1801,12 +2280,21 @@ class CarManager(tk.Tk):
 
         rows = self.database.execute(
             """
-            SELECT reminders.*, cars.name AS car_name
+            SELECT
+                reminders.id,
+                reminders.car_id,
+                reminders.title,
+                reminders.due_date,
+                reminders.due_mileage,
+                reminders.done,
+                reminders.notes,
+                cars.name AS car_name
             FROM reminders
             LEFT JOIN cars
-            ON cars.id=reminders.car_id
-            ORDER BY reminders.done ASC,
-                     reminders.due_date ASC
+                ON cars.id=reminders.car_id
+            ORDER BY
+                reminders.done ASC,
+                reminders.due_date ASC
             """,
             fetch=True
         )
@@ -1876,32 +2364,32 @@ class CarManager(tk.Tk):
             if table == "service":
 
                 values = [
-                    row["date"],
-                    row["car_name"],
-                    row["title"],
-                    row["category"],
-                    f'{row["mileage"]:,} km',
+                    row["date"] or "—",
+                    row["car_name"] or "—",
+                    row["title"] or "—",
+                    row["category"] or "—",
+                    f'{self.number(row["mileage"])} km',
                     self.money(row["cost"])
                 ]
 
             elif table == "fuel":
 
                 values = [
-                    row["date"],
-                    row["car_name"],
-                    f'{float(row["liters"]):.1f} L',
+                    row["date"] or "—",
+                    row["car_name"] or "—",
+                    f'{float(row["liters"] or 0):.1f} L',
                     self.money(row["price"]),
-                    f'{row["mileage"]:,} km',
+                    f'{self.number(row["mileage"])} km',
                     row["station"] or "—"
                 ]
 
             elif table == "expenses":
 
                 values = [
-                    row["date"],
-                    row["car_name"],
-                    row["title"],
-                    row["category"],
+                    row["date"] or "—",
+                    row["car_name"] or "—",
+                    row["title"] or "—",
+                    row["category"] or "—",
                     self.money(row["amount"])
                 ]
 
@@ -1911,12 +2399,11 @@ class CarManager(tk.Tk):
                     "✓ Done"
                     if row["done"]
                     else "○ Open",
-
-                    row["car_name"],
-                    row["title"],
-                    row["due_date"],
+                    row["car_name"] or "—",
+                    row["title"] or "—",
+                    row["due_date"] or "—",
                     (
-                        f'{row["due_mileage"]:,} km'
+                        f'{self.number(row["due_mileage"])} km'
                         if row["due_mileage"]
                         else "—"
                     )
@@ -1924,11 +2411,24 @@ class CarManager(tk.Tk):
 
             for column, value in enumerate(values):
 
+                fg = self.c("text")
+
+                if (
+                    table == "reminders"
+                    and column == 0
+                ):
+
+                    fg = (
+                        self.c("success")
+                        if row["done"]
+                        else self.c("warning")
+                    )
+
                 tk.Label(
                     wrapper,
-                    text=str(value or "—"),
+                    text=str(value),
                     font=("Segoe UI", 9),
-                    fg=self.c("text"),
+                    fg=fg,
                     bg=self.c("surface"),
                     anchor="w"
                 ).grid(
@@ -1952,7 +2452,10 @@ class CarManager(tk.Tk):
 
                 command = (
                     lambda r=row, t=table:
-                    self.delete_record(t, r["id"])
+                    self.delete_record(
+                        t,
+                        r["id"]
+                    )
                 )
 
                 symbol = "×"
@@ -1979,7 +2482,11 @@ class CarManager(tk.Tk):
     def select_car(self):
 
         cars = self.database.execute(
-            "SELECT * FROM cars ORDER BY name",
+            """
+            SELECT id, name
+            FROM cars
+            ORDER BY name
+            """,
             fetch=True
         )
 
@@ -2160,7 +2667,8 @@ class CarManager(tk.Tk):
             for key, entry in entries.items()
         }
 
-        callback(values)
+        if callback(values) is False:
+            return
 
         window.destroy()
 
@@ -2194,7 +2702,7 @@ class CarManager(tk.Tk):
                     "Mileage and cost must be numbers."
                 )
 
-                return
+                return False
 
             self.database.execute(
                 """
@@ -2222,6 +2730,8 @@ class CarManager(tk.Tk):
             )
 
             self.show_service()
+
+            return True
 
         self.open_form(
             "Add service record",
@@ -2270,7 +2780,7 @@ class CarManager(tk.Tk):
                     "Liters, price and mileage must be numbers."
                 )
 
-                return
+                return False
 
             self.database.execute(
                 """
@@ -2296,6 +2806,8 @@ class CarManager(tk.Tk):
             )
 
             self.show_fuel()
+
+            return True
 
         self.open_form(
             "Add fuel record",
@@ -2335,7 +2847,7 @@ class CarManager(tk.Tk):
                     "Amount must be a number."
                 )
 
-                return
+                return False
 
             self.database.execute(
                 """
@@ -2361,6 +2873,8 @@ class CarManager(tk.Tk):
             )
 
             self.show_expenses()
+
+            return True
 
         self.open_form(
             "Add expense",
@@ -2400,7 +2914,7 @@ class CarManager(tk.Tk):
                     "Mileage must be a number."
                 )
 
-                return
+                return False
 
             self.database.execute(
                 """
@@ -2427,6 +2941,8 @@ class CarManager(tk.Tk):
 
             self.show_reminders()
 
+            return True
+
         self.open_form(
             "Add reminder",
             [
@@ -2439,7 +2955,7 @@ class CarManager(tk.Tk):
         )
 
     # ========================================================
-    # DELETE
+    # DELETE RECORD
     # ========================================================
 
     def delete_record(
@@ -2483,7 +2999,10 @@ class CarManager(tk.Tk):
             WHERE id=?
             """,
             (
-                0 if reminder["done"] else 1,
+                0
+                if reminder["done"]
+                else
+                1,
                 reminder["id"]
             )
         )
@@ -2511,6 +3030,8 @@ class CarManager(tk.Tk):
             "reminders"
         ]
 
+        exported = 0
+
         for table in tables:
 
             rows = self.database.execute(
@@ -2523,7 +3044,8 @@ class CarManager(tk.Tk):
 
             path = (
                 Path(folder)
-                / f"{table}.csv"
+                /
+                f"{table}.csv"
             )
 
             with path.open(
@@ -2544,10 +3066,36 @@ class CarManager(tk.Tk):
                         list(row)
                     )
 
+            exported += 1
+
         messagebox.showinfo(
             "Export complete",
-            f"All data exported to:\n{folder}"
+            (
+                f"Exported {exported} tables.\n\n"
+                f"Folder:\n{folder}"
+            )
         )
+
+    # ========================================================
+    # OPEN DATABASE FOLDER
+    # ========================================================
+
+    def open_database_folder(self):
+
+        folder = DB_FILE.parent
+
+        try:
+
+            webbrowser.open(
+                folder.as_uri()
+            )
+
+        except Exception:
+
+            messagebox.showinfo(
+                "Database",
+                f"Database location:\n{DB_FILE}"
+            )
 
     # ========================================================
     # THEME
@@ -2576,6 +3124,8 @@ class CarManager(tk.Tk):
             bg=self.c("bg")
         )
 
+        self.configure_styles()
+
         self.build_menu()
         self.build_interface()
 
@@ -2594,7 +3144,7 @@ class CarManager(tk.Tk):
         )
 
         window.geometry(
-            "470x340"
+            "470x350"
         )
 
         window.configure(
@@ -2667,6 +3217,21 @@ class CarManager(tk.Tk):
         ).pack(
             pady=25
         )
+
+    # ========================================================
+    # CLOSE
+    # ========================================================
+
+    def on_close(self):
+
+        try:
+
+            self.database.close()
+
+        except Exception:
+            pass
+
+        self.destroy()
 
 
 # ============================================================
